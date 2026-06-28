@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+
+_fetch() {
+    local prog="$1"
+    if command -v tldr &>/dev/null; then
+        tldr --raw "$prog" 2>/dev/null || tldr "$prog" 2>/dev/null
+        return
+    fi
+    local content
+    for platform in common linux osx windows; do
+        content=$(curl -sf "https://raw.githubusercontent.com/tldr-pages/tldr/main/pages/$platform/$prog.md" 2>/dev/null)
+        [[ -n "$content" ]] && echo "$content" && return
+    done
+    return 1
+}
+
+_parse() {
+    local content="$1"
+    local -n _descs="$2"
+    local -n _cmds="$3"
+    _descs=(); _cmds=()
+    local desc=""
+    while IFS= read -r line; do
+        [[ "$line" =~ ^-\ (.+)$ ]]  && desc="${BASH_REMATCH[1]%:}"
+        [[ "$line" =~ ^\`(.+)\`$ ]] && _descs+=("$desc") && _cmds+=("${BASH_REMATCH[1]}") && desc=""
+    done <<< "$content"
+}
+
+_copy() {
+    echo "$1" | wl-copy 2>/dev/null \
+     || echo "$1" | xclip -selection clipboard 2>/dev/null \
+     || echo "$1" | xsel --clipboard 2>/dev/null \
+     && echo "Skopiowano" || echo "Brak wl-copy/xclip/xsel"
+}
+
+_tui() {
+    local prog="$1"
+    local -n _descs="$2"
+    local -n _cmds="$3"
+
+    while true; do
+        echo "=== tldr: $prog ==="
+        for i in "${!_cmds[@]}"; do
+            printf "%2d) %s\n    \033[90m%s\033[0m\n" $((i+1)) "${_cmds[$i]}" "${_descs[$i]}"
+        done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        case "$n" in
+            0|q|exit|quit) break ;;
+            ''|*[!0-9]*) echo "Wpisz numer" ;;
+            *)
+                local idx=$((n-1))
+                if [[ $idx -lt 0 || $idx -ge ${#_cmds[@]} ]]; then
+                    echo "Nieprawidlowy numer"
+                else
+                    local cmd="${_cmds[$idx]}"
+                    echo; echo "$ $cmd"
+                    echo -n "[k]opiuj / [u]ruchom / enter=wróć: "; read -r action
+                    case "$action" in
+                        k|K) _copy "$cmd" ;;
+                        u|U) eval "$cmd" ;;
+                    esac
+                fi
+                ;;
+        esac
+        echo
+    done
+}
+
+main() {
+    local prog="${1:-}"
+
+    if [[ -z "$prog" ]]; then
+        echo "Uzycie: eztldr <komenda>"
+        echo "        eztldr search <query>"
+        return 1
+    fi
+
+    if [[ "$prog" == "search" ]]; then
+        local query="${2:-}"
+        [[ -z "$query" ]] && { echo "Uzycie: eztldr search <query>"; return 1; }
+        command -v tldr &>/dev/null \
+            && tldr --list 2>/dev/null | grep -i "$query" | column \
+            || echo "tldr nie zainstalowany — paru -S tldr"
+        return
+    fi
+
+    local content
+    content=$(_fetch "$prog")
+    if [[ -z "$content" ]]; then
+        echo "Brak strony tldr dla: $prog"
+        command -v tldr &>/dev/null || echo "Zainstaluj: paru -S tldr"
+        return 1
+    fi
+
+    local descs cmds
+    _parse "$content" descs cmds
+    [[ ${#cmds[@]} -eq 0 ]] && { echo "Brak przykladow dla: $prog"; return 1; }
+
+    _tui "$prog" descs cmds
+}
+
+main "$@"

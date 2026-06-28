@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+
+detect_lang() {
+    [[ -f Cargo.toml ]]                          && echo rust   && return
+    [[ -f package.json ]]                        && echo node   && return
+    [[ -f pyproject.toml || -f setup.py ]]       && echo python && return
+    [[ -f .SRCINFO || -f PKGBUILD ]]             && echo aur    && return
+    echo git
+}
+
+detect_host() {
+    local remote=$(git remote get-url origin 2>/dev/null)
+    case "$remote" in
+        *github*)   echo github ;;
+        *gitlab*)   echo gitlab ;;
+        *gitea*)    echo gitea ;;
+        *codeberg*) echo codeberg ;;
+        *sr.ht*)    echo sourcehut ;;
+        *)          echo git ;;
+    esac
+}
+
+push() {
+    local branch=$(git branch --show-current)
+    git push origin "$branch" && echo "Wypchnięto: $branch → $(detect_host)"
+}
+
+tag() {
+    [[ -z "$2" ]] && { echo "Uzycie: ezdeploy tag <wersja>"; return 1; }
+    git tag -a "$2" -m "release $2" && git push origin "$2" && echo "Tag: $2"
+}
+
+release() {
+    [[ -z "$2" ]] && { echo "Uzycie: ezdeploy release <wersja>"; return 1; }
+    local host=$(detect_host)
+    git tag -a "$2" -m "release $2" 2>/dev/null; git push origin "$2" 2>/dev/null
+    case "$host" in
+        github)    gh release create "$2" --generate-notes && echo "GitHub Release: $2" ;;
+        gitlab)    glab release create "$2" && echo "GitLab Release: $2" ;;
+        gitea)     tea release create --tag "$2" --title "$2" && echo "Gitea Release: $2" ;;
+        *)         echo "Release stworzony lokalnie (tag $2), push na $host zrobiony" ;;
+    esac
+}
+
+publish() {
+    local lang=$(detect_lang)
+    echo "Publikuje: $lang"
+    case "$lang" in
+        rust)   cargo publish ;;
+        node)   npm publish ;;
+        python) python -m twine upload dist/* ;;
+        aur)    git push aur master && echo "AUR zaktualizowane" ;;
+        *)      echo "Brak obslugi rejestru dla: $lang (zrob push/release recznie)" ;;
+    esac
+}
+
+status() {
+    local branch=$(git branch --show-current 2>/dev/null || echo "?")
+    local host=$(detect_host)
+    local lang=$(detect_lang)
+    local ahead=$(git rev-list --count @{u}..HEAD 2>/dev/null || echo "?")
+    echo "Host:     $host"
+    echo "Branch:   $branch"
+    echo "Jezyk:    $lang"
+    echo "Ahead:    $ahead commitow"
+    echo "Remote:   $(git remote get-url origin 2>/dev/null || echo 'brak')"
+}
+
+all() { push; }
+
+_do() {
+    case "$1" in
+        push)    push ;;
+        tag)     tag _ "$2" ;;
+        release) release _ "$2" ;;
+        publish) publish ;;
+        status)  status ;;
+        all)     all ;;
+        info)    info ;;
+        *)       return 1 ;;
+    esac
+}
+
+_tui_dispatch() {
+    local input="$1"
+    local -n _cmds="$2"
+    case "$input" in
+        0|exit|quit|q) return 1 ;;
+        ''|*[!0-9]*)
+            for cmd in "${_cmds[@]}"; do
+                [[ "$input" == "$cmd" ]] && {
+                    if [[ "$cmd" == "tag" || "$cmd" == "release" ]]; then
+                        echo -n "Wersja: "; read -r ver
+                        echo "--- $cmd $ver ---"; _do "$cmd" "$ver"
+                    else
+                        echo "--- $cmd ---"; _do "$cmd"
+                    fi
+                    return 0
+                }
+            done
+            echo "Nieznana komenda: $input"
+            ;;
+        *)
+            local cmd="${_cmds[$((input-1))]}"
+            if [[ -z "$cmd" ]]; then
+                echo "Nieprawidlowy numer"
+            elif [[ "$cmd" == "tag" || "$cmd" == "release" ]]; then
+                echo -n "Wersja: "; read -r ver
+                echo "--- $cmd $ver ---"; _do "$cmd" "$ver"
+            else
+                echo "--- $cmd ---"; _do "$cmd"
+            fi
+            ;;
+    esac
+}
+
+tui() {
+    local cmds=(push tag release publish status info)
+    local descs=(
+        "push biezacego brancha"
+        "stworz i wypchnij tag"
+        "stworz release (gh/glab/tea)"
+        "publikuj paczke (npm/PyPI/cargo/AUR)"
+        "status repozytorium"
+        "info + komendy"
+    )
+    while true; do
+        echo "=== ezdeploy | $(detect_host) | $(git branch --show-current 2>/dev/null) ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-10s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz  (lub: exit)"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--push)    push ;;
+            -t|--tag)     shift; "$0" tag "$1" ;;
+            -r|--release) shift; "$0" release "$1" ;;
+            -P|--publish) publish ;;
+            -s|--status)  status ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -p -t <v> -r <v> -P -s" ;;
+        esac
+        shift
+    done
+}
+
+info() {
+    status
+    echo
+    echo "ezdeploy push              # git push origin <branch>"
+    echo "ezdeploy tag <wersja>      # tag + push"
+    echo "ezdeploy release <wersja>  # tag + release (gh/glab/tea)"
+    echo "ezdeploy publish           # npm/PyPI/cargo publish / AUR"
+    echo "ezdeploy status            # info o repo"
+    echo "ezdeploy all               # push"
+    echo "ezdeploy tui               # interaktywne menu"
+    echo "ezdeploy cli [flagi]       # -p -t <v> -r <v> -P -s"
+}
+
+case "${1:-info}" in
+    tui) tui ;;
+    cli) cli "$@" ;;
+    tag) tag "$@" ;;
+    release) release "$@" ;;
+    *)   _do "${1:-info}" || echo "Uzycie: ezdeploy [push|tag|release|publish|status|all|tui|cli|info]" ;;
+esac

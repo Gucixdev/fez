@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+. "$(dirname "${BASH_SOURCE[0]}")/_ez.sh"
+
+clean_ram()     { sync; sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'; echo "RAM: $(free -h | awk '/^Mem/{print $3"/"$2}')"; }
+clean_logs() {
+    sudo journalctl --vacuum-time=7d
+    sudo find /var/log -type f \( -name "*.log" -mtime +7 -o -name "*.gz" \) -delete 2>/dev/null
+    local steam_native=~/.local/share/Steam
+    local steam_flat=~/.var/app/com.valvesoftware.Steam/.local/share/Steam
+    for steam_dir in "$steam_native" "$steam_flat"; do
+        find "$steam_dir/logs" -type f -name "*.log" -delete 2>/dev/null
+        find "$steam_dir/config/htmlcache" -type f -delete 2>/dev/null
+    done
+    find ~/.local/share -maxdepth 4 -type f -name "*.log" -mtime +7 -delete 2>/dev/null
+    find ~/.cache -maxdepth 3 -type f -name "*.log" -mtime +7 -delete 2>/dev/null
+    echo "Logi: $(du -sh /var/log 2>/dev/null | cut -f1)"
+}
+clean_tmp()     { sudo find /tmp -mindepth 1 -maxdepth 1 -not -name '.X*' -not -name 'systemd-private-*' -delete 2>/dev/null; echo "Tmp: $(du -sh /tmp 2>/dev/null | cut -f1)"; }
+clean_pacman()  { sudo paccache -rk2; }
+clean_orphans() { o=$(pacman -Qdtq 2>/dev/null); [[ -n "$o" ]] && sudo pacman -Rns --noconfirm $o || echo "Brak orphans"; }
+clean_snaps()   { ls /snapshots/ 2>/dev/null | nl; echo -n "Numer: "; read -r n; name=$(ls -1 /snapshots/ | sed -n "${n}p"); [[ -n "$name" ]] && sudo btrfs subvolume delete "/snapshots/$name"; }
+clean_kernels() {
+    current=$(uname -r | sed 's/-cachyos.*//')
+    echo "Aktywny kernel: $(uname -r)"
+    sudo paccache -rk1 -v 2>/dev/null | grep linux
+    old=$(pacman -Q | grep '^linux-cachyos' | grep -v "$(uname -r | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')" | awk '{print $1}')
+    if [[ -n "$old" ]]; then
+        echo "Stare kernele: $old"
+        echo -n "Usunac? [t/N] "; read -r yn
+        [[ "$yn" == "t" || "$yn" == "T" ]] && sudo pacman -Rns --noconfirm $old
+    else
+        echo "Brak starych kerneli"
+    fi
+}
+clean_thumb()   { rm -rf ~/.cache/thumbnails/*; echo "Miniaturki wyczyszczone"; }
+clean_cache()   { du -sh ~/.cache 2>/dev/null | cut -f1 | xargs -I{} echo "Cache przed: {}"; rm -rf ~/.cache/mozilla ~/.cache/chromium ~/.cache/pip ~/.cache/go ~/.cache/fontconfig 2>/dev/null; echo "Cache po: $(du -sh ~/.cache 2>/dev/null | cut -f1)"; }
+clean_flatpak() { flatpak uninstall --unused -y; echo "Flatpak: $(du -sh ~/.var/app 2>/dev/null | cut -f1)"; }
+clean_podman()  { podman image prune -f 2>/dev/null; echo "Podman: usunieto nieuzywane warstwy obrazow"; }
+clean_trash()   { rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null; echo "Kosz opróżniony"; }
+
+all() { clean_ram; clean_logs; clean_tmp; clean_pacman; clean_orphans; clean_thumb; clean_cache; clean_flatpak; clean_podman; clean_trash; }
+
+_do() {
+    case "$1" in
+        ram)     clean_ram ;;
+        logs)    clean_logs ;;
+        tmp)     clean_tmp ;;
+        pacman)  clean_pacman ;;
+        orphans) clean_orphans ;;
+        kernels) clean_kernels ;;
+        thumb)   clean_thumb ;;
+        cache)   clean_cache ;;
+        flatpak) clean_flatpak ;;
+        podman)  clean_podman ;;
+        trash)   clean_trash ;;
+        snaps)   clean_snaps ;;
+        all)     all ;;
+        info)    info ;;
+        *)       return 1 ;;
+    esac
+}
+
+tui() {
+    local cmds=(ram logs tmp pacman orphans kernels thumb cache flatpak podman trash snaps all info)
+    local descs=(
+        "czysc RAM cache"
+        "logi starsze niz 7 dni"
+        "czysci /tmp"
+        "cache pacmana (zostaja 2 wersje)"
+        "usuwa osierocone paczki"
+        "usuwa stare kernele"
+        "czysci miniaturki"
+        "czysci ~/.cache"
+        "usuwa nieuzywane runtimes flatpaka"
+        "czysci nieuzywane obrazy podman"
+        "opróznia kosz"
+        "wybierz snapshot do usuniecia"
+        "wszystko naraz"
+        "info + komendy"
+    )
+    while true; do
+        echo "=== ezcleaner ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-10s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz  (lub: exit)"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -R|--ram)     clean_ram ;;
+            -l|--logs)    clean_logs ;;
+            -t|--tmp)     clean_tmp ;;
+            -p|--pacman)  clean_pacman ;;
+            -o|--orphans) clean_orphans ;;
+            -k|--kernels) clean_kernels ;;
+            -T|--thumb)   clean_thumb ;;
+            -c|--cache)   clean_cache ;;
+            -f|--flatpak) clean_flatpak ;;
+            -P|--podman)  clean_podman ;;
+            -r|--trash)   clean_trash ;;
+            -s|--snaps)   clean_snaps ;;
+            -a|--all)     all ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -R -l -t -p -o -k -T -c -f -P -r -s -a" ;;
+        esac
+        shift
+    done
+}
+
+info() {
+    echo "RAM:      $(free -h | awk '/^Mem/{print $3"/"$2}')"
+    echo "SWAP:     $(free -h | awk '/^Swap/{print $3"/"$2}')"
+    echo "Logi:     $(du -sh /var/log 2>/dev/null | cut -f1)"
+    echo "Tmp:      $(du -sh /tmp 2>/dev/null | cut -f1)"
+    echo "Pacman:   $(du -sh /var/cache/pacman/pkg 2>/dev/null | cut -f1)"
+    echo "Cache:    $(du -sh ~/.cache 2>/dev/null | cut -f1)"
+    echo "Flatpak:  $(du -sh ~/.var/app 2>/dev/null | cut -f1)"
+    echo "Thumb:    $(du -sh ~/.cache/thumbnails 2>/dev/null | cut -f1)"
+    echo "Trash:    $(du -sh ~/.local/share/Trash 2>/dev/null | cut -f1)"
+    echo "Snaps:    $(ls /snapshots/ 2>/dev/null | wc -l)"
+    echo
+    echo "ezcleaner ram          # czyści RAM cache"
+    echo "ezcleaner logs         # logi starsze niz 7 dni"
+    echo "ezcleaner tmp          # czysci /tmp"
+    echo "ezcleaner pacman       # cache pacmana (zostaja 2 wersje)"
+    echo "ezcleaner orphans      # usuwa osierocone paczki"
+    echo "ezcleaner kernels      # usuwa stare kernele"
+    echo "ezcleaner thumb        # czysci miniaturki"
+    echo "ezcleaner cache        # czysci ~/.cache (przegladarki, pip, fonty)"
+    echo "ezcleaner flatpak      # usuwa nieuzywane runtimes flatpaka"
+    echo "ezcleaner podman       # czysci nieuzywane obrazy podman"
+    echo "ezcleaner trash        # opróznia kosz"
+    echo "ezcleaner snaps        # wybierz snapshot do usuniecia"
+    echo "ezcleaner all          # wszystko naraz"
+    echo "ezcleaner tui          # interaktywne menu"
+    echo "ezcleaner cli [flagi]  # -R -l -t -p -o -k -T -c -f -P -r -s -a"
+}
+
+case "${1:-info}" in
+    tui) tui ;;
+    cli) cli "$@" ;;
+    *)   _do "${1:-info}" || echo "Uzycie: ezcleaner [ram|logs|tmp|pacman|orphans|kernels|thumb|cache|flatpak|podman|trash|snaps|all|tui|cli|info]" ;;
+esac
