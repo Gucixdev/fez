@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# ezalias - Instant Aliasing
+
+NAME=$1
+COMMAND=$2
+
+if [[ -z "$NAME" || -z "$COMMAND" ]]; then
+    echo "Usage: ezalias <name> '<command>'"
+    exit 1
+fi
+
+SHELL_RC="$HOME/.bashrc"
+[[ "$SHELL" == *"/zsh"* ]] && SHELL_RC="$HOME/.zshrc"
+
+echo "alias $NAME='$COMMAND'" >> "$SHELL_RC"
+# Magic: export alias to current shell via a temp file
+alias "$NAME"="$COMMAND"
+
+echo "✅ Alias $NAME added to $SHELL_RC"

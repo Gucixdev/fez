@@ -1,0 +1,75 @@
+#!/usr/bin/env bash
+
+# --- SETUP ---
+SEP="------------------------------------------"
+trap 'stty echo; echo -e "\nEXIT"; exit' SIGINT
+
+# --- ENGINE DETECTION ---
+if command -v bluetoothctl >/dev/null 2>&1; then
+    MODE="btctl"
+elif command -v bt-device >/dev/null 2>&1; then
+    MODE="bluez-tools"
+else
+    echo "❌ No BT tools found (install bluez)"; exit 1
+fi
+
+# Power on
+if [[ "$MODE" == "btctl" ]]; then
+    bluetoothctl power on >/dev/null 2>&1
+else
+    hciconfig hci0 up >/dev/null 2>&1
+fi
+
+# --- SCAN ---
+clear
+echo "$SEP"
+echo "  MODE: $MODE | SCANNING (5s)..."
+echo "$SEP"
+
+if [[ "$MODE" == "btctl" ]]; then
+    timeout 5s bluetoothctl scan on >/dev/null 2>&1 &
+    sleep 5
+    mapfile -t DEVS < <(bluetoothctl devices | grep -v "no name" | awk '!seen[$0]++')
+else
+    # Fallback scan for bluez-tools/hcitool
+    mapfile -t DEVS < <(hcitool scan | tail -n +2 | awk '{print "Device "$1" "$2}')
+fi
+
+if [ ${#DEVS[@]} -eq 0 ]; then echo "❌ NO DEVS"; exit 1; fi
+
+# --- UI ---
+for i in "${!DEVS[@]}"; do
+    printf "%-3s | %s\n" "$((i+1))" "${DEVS[$i]}"
+done
+
+echo "$SEP"
+read -n 1 -p "> " CH_RAW
+echo -e "\n"
+
+IDX=$((CH_RAW-1))
+[[ -z "${DEVS[$IDX]}" || $CH_RAW -lt 1 ]] && { echo "❌"; exit 1; }
+
+# Parse MAC and Name
+DEV_MAC=$(echo "${DEVS[$IDX]}" | awk '{print $2}')
+DEV_NAME=$(echo "${DEVS[$IDX]}" | cut -d' ' -f3-)
+
+# --- EXEC ---
+echo "CONNECTING TO: $DEV_NAME"
+if [[ "$MODE" == "btctl" ]]; then
+    {
+        bluetoothctl pair "$DEV_MAC"
+        bluetoothctl trust "$DEV_MAC"
+        bluetoothctl connect "$DEV_MAC"
+    } >/dev/null 2>&1
+else
+    bt-device -c "$DEV_MAC" >/dev/null 2>&1
+fi
+
+# --- CHECK ---
+sleep 2
+if [[ "$MODE" == "btctl" ]]; then
+    bluetoothctl info "$DEV_MAC" | grep -q "Connected: yes" && echo "✅" || echo "❌"
+else
+    bt-device -i "$DEV_MAC" | grep -q "Connected: 1" && echo "✅" || echo "❌"
+fi
+echo "$SEP"
