@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# fezbt — Bluetooth manager (bluetoothctl/bluez-tools auto-detect)
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+_mode() {
+    command -v bluetoothctl &>/dev/null && echo btctl && return
+    command -v bt-device    &>/dev/null && echo bluez  && return
+    echo none
+}
+
+_power_on() {
+    case "$(_mode)" in
+        btctl) bluetoothctl power on >/dev/null 2>&1 ;;
+        bluez) hciconfig hci0 up >/dev/null 2>&1 ;;
+    esac
+}
+
+scan() {
+    _power_on
+    local mode; mode=$(_mode)
+    [[ "$mode" == none ]] && { echo "Brak narzedzi BT (sudo pacman -S bluez bluez-utils)"; return 1; }
+    echo "Skanowanie (5s)..."
+    case "$mode" in
+        btctl) timeout 5s bluetoothctl scan on >/dev/null 2>&1 ;;
+        bluez) true ;;
+    esac
+}
+
+list() {
+    _power_on
+    local mode; mode=$(_mode)
+    case "$mode" in
+        none)  echo "Brak narzedzi BT"; return 1 ;;
+        btctl) bluetoothctl devices | grep -v 'no name' ;;
+        bluez) bt-device -l ;;
+    esac
+}
+
+paired() {
+    local mode; mode=$(_mode)
+    case "$mode" in
+        btctl) bluetoothctl devices Paired ;;
+        bluez) bt-device -l ;;
+        *)     echo "Brak narzedzi BT" ;;
+    esac
+}
+
+connect() {
+    local mac="${1}"
+    local mode; mode=$(_mode)
+    [[ "$mode" == none ]] && { echo "Brak narzedzi BT"; return 1; }
+
+    if [[ -z "$mac" ]]; then
+        echo "Dostepne urzadzenia (po skanowaniu):"
+        scan
+        local devs=()
+        case "$mode" in
+            btctl) mapfile -t devs < <(bluetoothctl devices | grep -v 'no name') ;;
+            bluez) mapfile -t devs < <(hcitool scan | tail -n +2) ;;
+        esac
+        for i in "${!devs[@]}"; do printf "  %2d) %s\n" $((i+1)) "${devs[$i]}"; done
+        echo -n "Nr: "; read -r n
+        local dev="${devs[$((n-1))]}"
+        mac=$(echo "$dev" | awk '{print $2}')
+    fi
+
+    [[ -z "$mac" ]] && { echo "Brak MAC"; return 1; }
+    echo "Lacze z: $mac"
+    case "$mode" in
+        btctl)
+            bluetoothctl pair    "$mac" >/dev/null 2>&1
+            bluetoothctl trust   "$mac" >/dev/null 2>&1
+            bluetoothctl connect "$mac" >/dev/null 2>&1
+            ;;
+        bluez) bt-device -c "$mac" >/dev/null 2>&1 ;;
+    esac
+    sleep 2
+    case "$mode" in
+        btctl) bluetoothctl info "$mac" | grep -q "Connected: yes" && echo "Polaczono: $mac" || echo "Blad polaczenia" ;;
+        bluez) bt-device -i "$mac" | grep -q "Connected: 1"        && echo "Polaczono: $mac" || echo "Blad polaczenia" ;;
+    esac
+}
+
+disconnect() {
+    local mac="${1}"
+    local mode; mode=$(_mode)
+    if [[ -z "$mac" ]]; then
+        paired
+        echo -n "MAC urzadzenia: "; read -r mac
+    fi
+    [[ -z "$mac" ]] && return 1
+    case "$mode" in
+        btctl) bluetoothctl disconnect "$mac" ;;
+        bluez) bt-device -d "$mac" 2>/dev/null || echo "Brak obslugi disconnect" ;;
+    esac
+}
+
+remove() {
+    local mac="${1}"
+    local mode; mode=$(_mode)
+    if [[ -z "$mac" ]]; then
+        paired
+        echo -n "MAC do usuniecia: "; read -r mac
+    fi
+    [[ -z "$mac" ]] && return 1
+    case "$mode" in
+        btctl) bluetoothctl remove "$mac" ;;
+        *)     echo "Brak obslugi remove dla: $mode" ;;
+    esac
+}
+
+status() {
+    local mode; mode=$(_mode)
+    echo "Backend: $mode"
+    case "$mode" in
+        btctl)
+            bluetoothctl show | grep -E 'Name|Powered|Discoverable|Pairable'
+            echo "Polaczone: $(bluetoothctl devices Connected 2>/dev/null | wc -l)"
+            ;;
+        bluez) hciconfig 2>/dev/null | head -5 ;;
+        none)  echo "Brak narzedzi BT" ;;
+    esac
+}
+
+info() {
+    status; echo
+    echo "fezbt list              # lista wykrytych urzadzen (po scan)"
+    echo "fezbt scan              # skanuj przez 5s"
+    echo "fezbt paired            # parowane urzadzenia"
+    echo "fezbt connect [mac]     # paruj i polacz"
+    echo "fezbt disconnect [mac]  # rozlacz"
+    echo "fezbt remove [mac]      # usun parowanie"
+    echo "fezbt status            # status adaptera"
+    echo "fezbt -c [flagi]        # -l -s -P -C [mac] -d [mac] -r [mac]"
+}
+
+all() { scan; list; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(scan list paired connect disconnect remove status info)
+    local descs=(
+        "skanuj urzadzenia (5s)"
+        "lista wykrytych urzadzen"
+        "parowane urzadzenia"
+        "paruj i polacz"
+        "rozlacz"
+        "usun parowanie"
+        "status adaptera"
+        "info + komendy"
+    )
+    while true; do
+        echo "=== fezbt | $(_mode) ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-12s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -l|--list)       list ;;
+            -s|--scan)       scan ;;
+            -P|--paired)     paired ;;
+            -C|--connect)    shift; connect "$1" ;;
+            -d|--disconnect) shift; disconnect "$1" ;;
+            -r|--remove)     shift; remove "$1" ;;
+            -S|--status)     status ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -l -s -P -C [mac] -d [mac] -r [mac] -S"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)     tui ;;
+    cli|-c)     cli "$@" ;;
+    all|-a)     all ;;
+    info|-i)    info ;;
+    connect)    connect "${@:2}" ;;
+    disconnect) disconnect "${@:2}" ;;
+    remove)     remove "${@:2}" ;;
+    *)          _do "$1" || echo "Uzycie: fezbt [scan|list|paired|connect|disconnect|remove|status|tui|cli|-a|-i]" ;;
+esac

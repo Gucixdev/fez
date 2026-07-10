@@ -1,0 +1,280 @@
+#!/usr/bin/env bash
+# fezremote — SSH host manager + tunnel manager (local/remote/SOCKS5)
+# ─────────────── CONFIG ───────────────
+SSH_CFG="$HOME/.ssh/config"
+_PIDS="$HOME/.local/share/fezremote/pids"
+# ──────────────────────────────────────
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+mkdir -p "$(dirname "$_PIDS")" 2>/dev/null
+
+_hosts() { grep '^Host ' "$SSH_CFG" 2>/dev/null | awk '{print $2}' | grep -v '[*?]'; }
+
+_field() {
+    local host="$1" field="$2"
+    awk "/^Host $host\$/{f=1} f && /^[[:space:]]*$field[[:space:]]/{print \$2; exit}" "$SSH_CFG" 2>/dev/null
+}
+
+_show_hosts() {
+    local hosts; mapfile -t hosts < <(_hosts)
+    [[ ${#hosts[@]} -eq 0 ]] && { echo "Brak hostow. Dodaj: fezremote add"; return 1; }
+    local i=1
+    for h in "${hosts[@]}"; do
+        local hn; hn=$(_field "$h" HostName)
+        local u;  u=$(_field "$h" User)
+        local p;  p=$(_field "$h" Port); p="${p:-22}"
+        printf "  %2d) %-22s  %s@%s:%s\n" "$i" "$h" "${u:-?}" "${hn:-?}" "$p"
+        ((i++))
+    done
+}
+
+_pick_host() {
+    local -n _ph="$1"
+    if [[ -n "${2:-}" ]]; then
+        _ph="$2"
+    else
+        _show_hosts || return 1
+        local hosts; mapfile -t hosts < <(_hosts)
+        echo -n "Nr/alias: "; read -r n
+        [[ "$n" =~ ^[0-9]+$ ]] && _ph="${hosts[$((n-1))]}" || _ph="$n"
+    fi
+    [[ -z "$_ph" ]] && return 1
+}
+
+_dead_cleanup() {
+    [[ ! -f "$_PIDS" ]] && return
+    local tmp; tmp=$(mktemp)
+    while read -r name pid desc; do
+        kill -0 "$pid" 2>/dev/null && echo "$name $pid $desc" >> "$tmp"
+    done < "$_PIDS"
+    mv "$tmp" "$_PIDS"
+}
+
+_active_count() {
+    _dead_cleanup
+    [[ -s "$_PIDS" ]] && wc -l < "$_PIDS" || echo 0
+}
+
+list() { _show_hosts; }
+
+connect() {
+    local host; _pick_host host "${1:-}" || return 1
+    ssh "$host"
+}
+
+add() {
+    mkdir -p "$HOME/.ssh"; chmod 700 "$HOME/.ssh"
+    touch "$SSH_CFG"; chmod 600 "$SSH_CFG"
+    local alias="${1:-}"
+    [[ -z "$alias" ]] && { echo -n "Alias: "; read -r alias; }
+    echo -n "Hostname/IP: "; read -r hostname
+    echo -n "User [$USER]: "; read -r user; user="${user:-$USER}"
+    echo -n "Port [22]: "; read -r port; port="${port:-22}"
+    echo -n "IdentityFile [$HOME/.ssh/id_ed25519]: "; read -r idf; idf="${idf:-$HOME/.ssh/id_ed25519}"
+    printf '\nHost %s\n    HostName %s\n    User %s\n    Port %s\n    IdentityFile %s\n' \
+        "$alias" "$hostname" "$user" "$port" "$idf" >> "$SSH_CFG"
+    echo "Dodano: $alias → $user@$hostname:$port"
+}
+
+remove() {
+    local host="${1:-}"
+    [[ -z "$host" ]] && { _show_hosts; echo -n "Alias do usuniecia: "; read -r host; }
+    [[ -z "$host" ]] && return 1
+    local tmp; tmp=$(mktemp)
+    local skip=0
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        [[ "$line" == "Host $host" ]] && { skip=1; continue; }
+        [[ $skip -eq 1 && "$line" =~ ^Host\  ]] && skip=0
+        [[ $skip -eq 0 ]] && echo "$line"
+    done < "$SSH_CFG" > "$tmp"
+    mv "$tmp" "$SSH_CFG"
+    echo "Usunieto: $host"
+}
+
+ping() {
+    local host; _pick_host host "${1:-}" || return 1
+    ssh -o ConnectTimeout=5 -o BatchMode=yes "$host" echo OK 2>/dev/null \
+        && echo "$host: dostepny" || echo "$host: niedostepny"
+}
+
+tunnel_local() {
+    local host; _pick_host host "${1:-}" || return 1
+    echo -n "Port lokalny: "; read -r lport
+    echo -n "Adres docelowy [localhost]: "; read -r dest; dest="${dest:-localhost}"
+    echo -n "Port docelowy [$lport]: "; read -r rport; rport="${rport:-$lport}"
+    echo -n "Nazwa tunelu [$host-L$lport]: "; read -r name; name="${name:-$host-L$lport}"
+    echo "Tunel L: localhost:$lport → $dest:$rport via $host  (Ctrl+C = stop)"
+    ssh -L "$lport:$dest:$rport" -N "$host" &
+    local pid=$!
+    echo "$name $pid L:$lport→$dest:$rport@$host" >> "$_PIDS"
+    echo "PID: $pid  |  fezremote tunnels  /  fezremote kill $name"
+    wait "$pid"
+}
+
+tunnel_remote() {
+    local host; _pick_host host "${1:-}" || return 1
+    echo -n "Port zdalny na serwerze: "; read -r rport
+    echo -n "Lokalny adres [localhost]: "; read -r dest; dest="${dest:-localhost}"
+    echo -n "Lokalny port [$rport]: "; read -r lport; lport="${lport:-$rport}"
+    echo -n "Nazwa tunelu [$host-R$rport]: "; read -r name; name="${name:-$host-R$rport}"
+    echo "Tunel R: $host:$rport → $dest:$lport  (Ctrl+C = stop)"
+    ssh -R "$rport:$dest:$lport" -N "$host" &
+    local pid=$!
+    echo "$name $pid R:$rport←$dest:$lport@$host" >> "$_PIDS"
+    echo "PID: $pid"
+    wait "$pid"
+}
+
+tunnel_socks() {
+    local host; _pick_host host "${1:-}" || return 1
+    echo -n "Port SOCKS5 lokalny [1080]: "; read -r lport; lport="${lport:-1080}"
+    echo -n "Nazwa tunelu [$host-D$lport]: "; read -r name; name="${name:-$host-D$lport}"
+    echo "SOCKS5: localhost:$lport via $host  (Ctrl+C = stop)"
+    ssh -D "$lport" -N "$host" &
+    local pid=$!
+    echo "$name $pid D:$lport@$host" >> "$_PIDS"
+    echo "PID: $pid"
+    wait "$pid"
+}
+
+tunnels() {
+    _dead_cleanup
+    [[ ! -s "$_PIDS" ]] && { echo "Brak aktywnych tuneli"; return; }
+    printf "%-24s  %-8s  %s\n" "NAZWA" "PID" "OPIS"
+    while read -r name pid desc; do
+        printf "%-24s  %-8s  %s\n" "$name" "$pid" "$desc"
+    done < "$_PIDS"
+}
+
+kill_tunnel() {
+    local name="${1:-}"
+    [[ -z "$name" ]] && { tunnels; echo -n "Nazwa: "; read -r name; }
+    [[ -z "$name" ]] && return 1
+    local pid; pid=$(grep "^$name " "$_PIDS" 2>/dev/null | awk '{print $2}')
+    [[ -z "$pid" ]] && { echo "Nie znaleziono tunelu: $name"; return 1; }
+    kill "$pid" 2>/dev/null && echo "Zatrzymano: $name (PID $pid)" || echo "Nie mozna zatrzymac PID $pid"
+    local tmp; tmp=$(mktemp)
+    grep -v "^$name " "$_PIDS" > "$tmp" && mv "$tmp" "$_PIDS"
+}
+
+status() {
+    echo "Hosty:   $(_hosts | wc -l)"
+    echo "Config:  $SSH_CFG"
+    echo "Aktywne: $(_active_count) tuneli"
+}
+
+info() {
+    status; echo
+    echo "fezremote                         # TUI"
+    echo "fezremote connect [host]          # ssh connect"
+    echo "fezremote add [alias]             # dodaj hosta"
+    echo "fezremote remove [alias]          # usun hosta"
+    echo "fezremote ping [host]             # sprawdz dostepnosc"
+    echo "fezremote tunnel_local [host]     # tunel L: lport→dest:dport"
+    echo "fezremote tunnel_remote [host]    # tunel R: rport←dest:lport"
+    echo "fezremote tunnel_socks [host]     # SOCKS5 proxy"
+    echo "fezremote tunnels                 # aktywne tunele + PID"
+    echo "fezremote kill_tunnel [nazwa]     # zatrzymaj tunel"
+    echo "fezremote -c [flagi]              # -l -c -a -r -L -R -D -t -k -p -s"
+}
+
+all() { tunnels; }
+
+_do() {
+    case "$1" in
+        list)         list ;;
+        connect)      connect ;;
+        add)          add ;;
+        remove)       remove ;;
+        ping)         ping ;;
+        tunnel_local) tunnel_local ;;
+        tunnel_remote) tunnel_remote ;;
+        tunnel_socks) tunnel_socks ;;
+        tunnels)      tunnels ;;
+        kill_tunnel)  kill_tunnel ;;
+        status)       status ;;
+        info)         info ;;
+        *)            return 1 ;;
+    esac
+}
+
+tui() {
+    while true; do
+        local hosts; mapfile -t hosts < <(_hosts)
+        echo "=== fezremote | ${#hosts[@]} hostow | $(_active_count) aktywnych tuneli ==="
+        _show_hosts
+        echo "---"
+        echo "  L) tunel lokalny    R) tunel zdalny    D) SOCKS5 proxy"
+        echo "  c) connect          a) dodaj host      r) usun host"
+        echo "  t) lista tuneli     k) kill tunel      p) ping"
+        echo "  0) wyjdz"
+        echo -n "Nr/alias lub komenda: "; read -r n
+        case "$n" in
+            0|exit|quit|q) break ;;
+            L|l) echo; tunnel_local;  echo -n "[Enter]"; read -r ;;
+            R)   echo; tunnel_remote; echo -n "[Enter]"; read -r ;;
+            D|d) echo; tunnel_socks;  echo -n "[Enter]"; read -r ;;
+            a)   echo; add;           echo -n "[Enter]"; read -r ;;
+            r)   echo; remove;        echo -n "[Enter]"; read -r ;;
+            t)   echo; tunnels;       echo -n "[Enter]"; read -r ;;
+            k)   echo; kill_tunnel;   echo -n "[Enter]"; read -r ;;
+            p)   echo; ping;          echo -n "[Enter]"; read -r ;;
+            c)   echo; connect ;;
+            ''|*[!0-9]*) [[ -n "$n" ]] && ssh "$n" ;;
+            *)
+                local host="${hosts[$((n-1))]}"
+                [[ -z "$host" ]] && echo "Nieprawidlowy numer" && continue
+                echo; echo "=== $host ==="
+                printf "  1) connect   2) tunel L   3) tunel R   4) SOCKS5   5) ping\n"
+                echo -n "Akcja [1]: "; read -r a; a="${a:-1}"
+                case "$a" in
+                    1) ssh "$host" ;;
+                    2) tunnel_local "$host" ;;
+                    3) tunnel_remote "$host" ;;
+                    4) tunnel_socks "$host" ;;
+                    5) ping "$host" ;;
+                    *) ssh "$host" ;;
+                esac
+                echo -n "[Enter]"; read -r ;;
+        esac
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -l|--list)    list ;;
+            -c|--connect) shift; connect "$1" ;;
+            -a|--add)     shift; add "$1" ;;
+            -r|--remove)  shift; remove "$1" ;;
+            -L|--local)   shift; tunnel_local "$1" ;;
+            -R|--remote)  shift; tunnel_remote "$1" ;;
+            -D|--socks)   shift; tunnel_socks "$1" ;;
+            -t|--tunnels) tunnels ;;
+            -k|--kill)    shift; kill_tunnel "$1" ;;
+            -p|--ping)    shift; ping "$1" ;;
+            -s|--status)  status ;;
+            *) echo "Nieznana flaga: $1"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)        tui ;;
+    cli|-C)        cli "$@" ;;
+    all|-a)        all ;;
+    info|-i)       info ;;
+    connect)       connect "${@:2}" ;;
+    add)           add "${@:2}" ;;
+    remove)        remove "${@:2}" ;;
+    ping)          ping "${@:2}" ;;
+    tunnel_local)  tunnel_local "${@:2}" ;;
+    tunnel_remote) tunnel_remote "${@:2}" ;;
+    tunnel_socks)  tunnel_socks "${@:2}" ;;
+    tunnels)       tunnels ;;
+    kill_tunnel)   kill_tunnel "${@:2}" ;;
+    list)          list ;;
+    status)        status ;;
+    *)             connect "$1" ;;
+esac

@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# fezcleaner — system cleanup (RAM, logs, cache, packages, trash)
+# ─────────────── CONFIG ───────────────
+LOG_DAYS=7        # logi starsze niz N dni
+PACMAN_KEEP=2     # ile wersji paczek zostawic w cache
+# ──────────────────────────────────────
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+ram() {
+    sync; sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+    echo "RAM: $(free -h | awk '/^Mem/{print $3"/"$2}')"
+}
+
+logs() {
+    sudo journalctl --vacuum-time="${LOG_DAYS}d"
+    sudo find /var/log -type f \( -name "*.log" -mtime +"$LOG_DAYS" -o -name "*.gz" \) -delete 2>/dev/null
+    for steam_dir in ~/.local/share/Steam ~/.var/app/com.valvesoftware.Steam/.local/share/Steam; do
+        find "$steam_dir/logs" -type f -name "*.log" -delete 2>/dev/null
+        find "$steam_dir/config/htmlcache" -type f -delete 2>/dev/null
+    done
+    find ~/.local/share -maxdepth 4 -type f -name "*.log" -mtime +"$LOG_DAYS" -delete 2>/dev/null
+    find ~/.cache     -maxdepth 3 -type f -name "*.log" -mtime +"$LOG_DAYS" -delete 2>/dev/null
+    echo "Logi: $(du -sh /var/log 2>/dev/null | cut -f1)"
+}
+
+tmp() {
+    sudo find /tmp -mindepth 1 -maxdepth 1 -not -name '.X*' -not -name 'systemd-private-*' -delete 2>/dev/null
+    echo "Tmp: $(du -sh /tmp 2>/dev/null | cut -f1)"
+}
+
+pacman() { sudo paccache -rk"$PACMAN_KEEP"; }
+
+orphans() {
+    local o; o=$(command pacman -Qdtq 2>/dev/null)
+    [[ -n "$o" ]] && sudo pacman -Rns --noconfirm $o || echo "Brak orphans"
+}
+
+kernels() {
+    echo "Aktywny kernel: $(uname -r)"
+    local old; old=$(command pacman -Q | grep '^linux-cachyos' \
+        | grep -v "$(uname -r | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')" | awk '{print $1}')
+    if [[ -n "$old" ]]; then
+        echo "Stare kernele: $old"
+        echo -n "Usunac? [t/N] "; read -r yn
+        [[ "$yn" == t || "$yn" == T ]] && sudo pacman -Rns --noconfirm $old
+    else
+        echo "Brak starych kerneli"
+    fi
+}
+
+thumb()   { rm -rf ~/.cache/thumbnails/*; echo "Miniaturki wyczyszczone"; }
+
+cache() {
+    echo "Cache przed: $(du -sh ~/.cache 2>/dev/null | cut -f1)"
+    rm -rf ~/.cache/mozilla ~/.cache/chromium ~/.cache/pip ~/.cache/go ~/.cache/fontconfig 2>/dev/null
+    echo "Cache po:    $(du -sh ~/.cache 2>/dev/null | cut -f1)"
+}
+
+flatpak() { command flatpak uninstall --unused -y; echo "Flatpak: $(du -sh ~/.var/app 2>/dev/null | cut -f1)"; }
+
+podman()  { command podman image prune -f 2>/dev/null; echo "Podman: usunieto nieuzywane warstwy obrazow"; }
+
+trash()   { rm -rf ~/.local/share/Trash/files/* ~/.local/share/Trash/info/* 2>/dev/null; echo "Kosz oprozniowany"; }
+
+status() {
+    printf "RAM:      %s\n"  "$(free -h | awk '/^Mem/{print $3"/"$2}')"
+    printf "SWAP:     %s\n"  "$(free -h | awk '/^Swap/{print $3"/"$2}')"
+    printf "Logi:     %s\n"  "$(du -sh /var/log 2>/dev/null | cut -f1)"
+    printf "Tmp:      %s\n"  "$(du -sh /tmp 2>/dev/null | cut -f1)"
+    printf "Pacman:   %s\n"  "$(du -sh /var/cache/pacman/pkg 2>/dev/null | cut -f1)"
+    printf "Cache:    %s\n"  "$(du -sh ~/.cache 2>/dev/null | cut -f1)"
+    printf "Flatpak:  %s\n"  "$(du -sh ~/.var/app 2>/dev/null | cut -f1)"
+    printf "Thumb:    %s\n"  "$(du -sh ~/.cache/thumbnails 2>/dev/null | cut -f1)"
+    printf "Trash:    %s\n"  "$(du -sh ~/.local/share/Trash 2>/dev/null | cut -f1)"
+}
+
+info() {
+    status; echo
+    echo "fezcleaner ram          # czysci RAM cache"
+    echo "fezcleaner logs         # logi starsze niz ${LOG_DAYS} dni"
+    echo "fezcleaner tmp          # czysci /tmp"
+    echo "fezcleaner pacman       # cache pacmana (zostaja ${PACMAN_KEEP} wersje)"
+    echo "fezcleaner orphans      # usuwa osierocone paczki"
+    echo "fezcleaner kernels      # usuwa stare kernele"
+    echo "fezcleaner thumb        # czysci miniaturki"
+    echo "fezcleaner cache        # czysci ~/.cache"
+    echo "fezcleaner flatpak      # usuwa nieuzywane runtimes"
+    echo "fezcleaner podman       # czysci nieuzywane obrazy"
+    echo "fezcleaner trash        # opróznia kosz"
+    echo "fezcleaner -a           # wszystko naraz"
+    echo "fezcleaner -c [flagi]   # -R -l -t -p -o -k -T -c -f -P -r -a"
+}
+
+all() { ram; logs; tmp; pacman; orphans; thumb; cache; flatpak; podman; trash; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(ram logs tmp pacman orphans kernels thumb cache flatpak podman trash status info)
+    local descs=(
+        "czysci RAM cache"
+        "logi starsze niz ${LOG_DAYS} dni"
+        "czysci /tmp"
+        "cache pacmana (zostaja ${PACMAN_KEEP} wersje)"
+        "usuwa osierocone paczki"
+        "usuwa stare kernele"
+        "czysci miniaturki"
+        "czysci ~/.cache"
+        "usuwa nieuzywane runtimes flatpaka"
+        "czysci nieuzywane obrazy podman"
+        "opróznia kosz"
+        "status systemu"
+        "info + komendy"
+    )
+    while true; do
+        echo "=== fezcleaner | RAM: $(free -h | awk '/^Mem/{print $3"/"$2}') ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-10s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -R|--ram)     ram ;;
+            -l|--logs)    logs ;;
+            -t|--tmp)     tmp ;;
+            -p|--pacman)  pacman ;;
+            -o|--orphans) orphans ;;
+            -k|--kernels) kernels ;;
+            -T|--thumb)   thumb ;;
+            -c|--cache)   cache ;;
+            -f|--flatpak) flatpak ;;
+            -P|--podman)  podman ;;
+            -r|--trash)   trash ;;
+            -a|--all)     all ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -R -l -t -p -o -k -T -c -f -P -r -a"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)  tui ;;
+    cli|-c)  cli "$@" ;;
+    all|-a)  all ;;
+    info|-i) info ;;
+    *)       _do "$1" || echo "Uzycie: fezcleaner [ram|logs|tmp|pacman|orphans|kernels|thumb|cache|flatpak|podman|trash|status|tui|cli|-a|-i]" ;;
+esac

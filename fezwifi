@@ -1,0 +1,168 @@
+#!/usr/bin/env bash
+# fezwifi — WiFi manager (nmcli/iwd/iwlist auto-detect)
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+_mode() {
+    command -v nmcli  &>/dev/null && echo nmcli  && return
+    command -v iwctl  &>/dev/null && echo iwd    && return
+    echo iwlist
+}
+
+_iface() { ip link | grep -oE 'w(lan|lp|lo)[0-9][a-z0-9]*' | head -1; }
+
+scan() {
+    local mode; mode=$(_mode)
+    local iface; iface=$(_iface)
+    echo "Skanowanie...  [$mode | $iface]"
+    case "$mode" in
+        nmcli)  nmcli dev wifi rescan 2>/dev/null ;;
+        iwd)    iwctl station "$iface" scan 2>/dev/null ;;
+    esac
+}
+
+list() {
+    local mode; mode=$(_mode)
+    local iface; iface=$(_iface)
+    scan
+    case "$mode" in
+        nmcli)
+            nmcli -f "SSID,SIGNAL,SECURITY" dev wifi | tail -n +2 | grep -v -- '--' | awk 'NF' | awk '!seen[$0]++'
+            ;;
+        iwd)
+            iwctl station "$iface" get-networks | tail -n +5 \
+                | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g"
+            ;;
+        *)
+            sudo iwlist "$iface" scanning | grep 'ESSID' | cut -d'"' -f2 | grep -v '^$' | sort -u
+            ;;
+    esac
+}
+
+connect() {
+    local ssid="${1}"
+    local mode; mode=$(_mode)
+    local iface; iface=$(_iface)
+
+    if [[ -z "$ssid" ]]; then
+        echo "Dostepne sieci:"
+        local nets=()
+        case "$mode" in
+            nmcli) mapfile -t nets < <(nmcli -f "SSID" dev wifi | tail -n +2 | grep -v -- '--' | awk 'NF' | awk '!seen[$0]++') ;;
+            iwd)   mapfile -t nets < <(iwctl station "$iface" get-networks | tail -n +5 \
+                       | sed -r "s/\x1B\[([0-9]{1,3}(;[0-9]{1,2})?)?[mGK]//g" | awk '{print $1}') ;;
+            *)     mapfile -t nets < <(sudo iwlist "$iface" scanning | grep 'ESSID' | cut -d'"' -f2 | grep -v '^$' | sort -u) ;;
+        esac
+        for i in "${!nets[@]}"; do printf "  %2d) %s\n" $((i+1)) "${nets[$i]}"; done
+        echo -n "Nr: "; read -r n
+        [[ "$n" =~ ^[0-9]+$ ]] && ssid="${nets[$((n-1))]}" || ssid="$n"
+    fi
+
+    [[ -z "$ssid" ]] && { echo "Brak SSID"; return 1; }
+    read -rs -p "Haslo dla $ssid: " pass; echo
+
+    case "$mode" in
+        nmcli) nmcli dev wifi connect "$ssid" password "$pass" ;;
+        iwd)   printf "%s\n" "$pass" | iwctl station "$iface" connect "$ssid" ;;
+        *)
+            local conf; conf=$(mktemp /tmp/wpa.XXXXXX.conf)
+            wpa_passphrase "$ssid" "$pass" > "$conf"
+            sudo wpa_supplicant -B -i "$iface" -c "$conf" >/dev/null 2>&1
+            sudo dhclient "$iface" >/dev/null 2>&1
+            rm -f "$conf"
+            ;;
+    esac
+
+    sleep 2
+    ping -c1 8.8.8.8 &>/dev/null && echo "Polaczono z: $ssid" || echo "Blad polaczenia z: $ssid"
+}
+
+disconnect() {
+    local mode; mode=$(_mode)
+    local iface; iface=$(_iface)
+    case "$mode" in
+        nmcli) nmcli dev disconnect "$iface" ;;
+        iwd)   iwctl station "$iface" disconnect ;;
+        *)     sudo ip link set "$iface" down ;;
+    esac
+    echo "Rozlaczono"
+}
+
+saved() {
+    local mode; mode=$(_mode)
+    case "$mode" in
+        nmcli) nmcli connection show | grep wifi | awk '{print $1}' ;;
+        *)     echo "Brak obslugi 'saved' dla: $mode" ;;
+    esac
+}
+
+status() {
+    local mode; mode=$(_mode)
+    local iface; iface=$(_iface)
+    echo "Backend: $mode"
+    echo "Iface:   $iface"
+    case "$mode" in
+        nmcli) nmcli -f "DEVICE,STATE,CONNECTION" dev | grep "$iface" ;;
+        iwd)   iwctl station "$iface" show ;;
+        *)     ip addr show "$iface" 2>/dev/null | grep -E 'state|inet ' ;;
+    esac
+}
+
+info() {
+    status; echo
+    echo "fezwifi list              # skanuj i wylistuj sieci"
+    echo "fezwifi connect [ssid]    # polacz sie"
+    echo "fezwifi disconnect        # rozlacz"
+    echo "fezwifi saved             # zapisane polaczenia"
+    echo "fezwifi status            # status interfejsu"
+    echo "fezwifi -a                # lista sieci"
+    echo "fezwifi -c [flagi]        # -l -C [ssid] -d -s"
+}
+
+all() { list; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(list connect disconnect saved status info)
+    local descs=(
+        "skanuj i wylistuj sieci"
+        "polacz sie (wybierz z listy)"
+        "rozlacz"
+        "zapisane polaczenia"
+        "status interfejsu"
+        "info + komendy"
+    )
+    while true; do
+        local iface; iface=$(_iface)
+        echo "=== fezwifi | $(_mode) | $iface ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-12s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -l|--list)       list ;;
+            -C|--connect)    shift; connect "$1" ;;
+            -d|--disconnect) disconnect ;;
+            -s|--saved)      saved ;;
+            -S|--status)     status ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -l -C [ssid] -d -s -S"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)     tui ;;
+    cli|-c)     cli "$@" ;;
+    all|-a)     all ;;
+    info|-i)    info ;;
+    connect)    connect "${@:2}" ;;
+    *)          _do "$1" || echo "Uzycie: fezwifi [list|connect|disconnect|saved|status|tui|cli|-a|-i]" ;;
+esac

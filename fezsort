@@ -1,0 +1,116 @@
+#!/usr/bin/env bash
+# fezsort — sort/normalize structured files (JSON keys, YAML, lines, dedup)
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+_pick_file() {
+    local -n _f="$1"
+    if [[ -n "${2:-}" ]]; then
+        _f="$2"
+    else
+        echo -n "Plik: "; read -r _f
+    fi
+    [[ -z "$_f" || ! -f "$_f" ]] && { echo "Brak pliku: $_f"; return 1; }
+}
+
+json() {
+    local f; _pick_file f "${1:-}" || return 1
+    command -v jq &>/dev/null || { echo "Brakuje: jq  →  sudo pacman -S jq"; return 1; }
+    local tmp; tmp=$(mktemp)
+    jq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && echo "JSON posortowany: $f"
+}
+
+yaml() {
+    local f; _pick_file f "${1:-}" || return 1
+    command -v yq &>/dev/null || { echo "Brakuje: yq  →  pip install yq  lub  paru -S yq"; return 1; }
+    local tmp; tmp=$(mktemp)
+    yq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && echo "YAML posortowany: $f"
+}
+
+lines() {
+    local f; _pick_file f "${1:-}" || return 1
+    local tmp; tmp=$(mktemp)
+    sort "$f" > "$tmp" && mv "$tmp" "$f" && echo "Linie posortowane: $f"
+}
+
+dedup() {
+    local f; _pick_file f "${1:-}" || return 1
+    local before; before=$(wc -l < "$f")
+    local tmp; tmp=$(mktemp)
+    awk '!seen[$0]++' "$f" > "$tmp" && mv "$tmp" "$f"
+    local after; after=$(wc -l < "$f")
+    echo "Dedup: $f  ($before → $after linii, usunieto $((before-after)))"
+}
+
+sort_lines_dedup() {
+    local f; _pick_file f "${1:-}" || return 1
+    local tmp; tmp=$(mktemp)
+    sort -u "$f" > "$tmp" && mv "$tmp" "$f" && echo "Posortowano + dedup: $f"
+}
+
+status() {
+    command -v jq &>/dev/null && echo "jq: OK" || echo "jq: BRAK"
+    command -v yq &>/dev/null && echo "yq: OK" || echo "yq: BRAK"
+}
+
+info() {
+    status; echo
+    echo "fezsort json [plik]         # sortuj klucze JSON"
+    echo "fezsort yaml [plik]         # sortuj klucze YAML"
+    echo "fezsort lines [plik]        # sortuj linie"
+    echo "fezsort dedup [plik]        # usuN duplikaty linii"
+    echo "fezsort sort_lines_dedup    # sortuj + dedup"
+    echo "fezsort -c [flagi]          # -j -y -l -d -u"
+}
+
+all() { echo "Wybierz plik i operacje z TUI"; tui; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(json yaml lines dedup sort_lines_dedup status info)
+    local descs=(
+        "sortuj klucze JSON"
+        "sortuj klucze YAML"
+        "sortuj linie alfabetycznie"
+        "usun duplikaty linii"
+        "sortuj linie + usun duplikaty"
+        "status narzedzi"
+        "info + komendy"
+    )
+    while true; do
+        echo "=== fezsort ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-18s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -j|--json)  shift; json "$1" ;;
+            -y|--yaml)  shift; yaml "$1" ;;
+            -l|--lines) shift; lines "$1" ;;
+            -d|--dedup) shift; dedup "$1" ;;
+            -u|--uniq)  shift; sort_lines_dedup "$1" ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -j <plik> -y <plik> -l <plik> -d <plik> -u <plik>"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)           tui ;;
+    cli|-c)           cli "$@" ;;
+    all|-a)           all ;;
+    info|-i)          info ;;
+    json)             json "${@:2}" ;;
+    yaml)             yaml "${@:2}" ;;
+    lines)            lines "${@:2}" ;;
+    dedup)            dedup "${@:2}" ;;
+    sort_lines_dedup) sort_lines_dedup "${@:2}" ;;
+    *)                _do "$1" || echo "Uzycie: fezsort [json|yaml|lines|dedup|sort_lines_dedup|tui|cli|-a|-i]" ;;
+esac

@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+# feztest — run tests for any project (auto-detect framework)
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+_detect() {
+    [[ -f Cargo.toml ]]                                           && echo rust   && return
+    [[ -f go.mod ]]                                               && echo go     && return
+    [[ -f bun.lockb ]]                                            && echo bun    && return
+    [[ -f package.json ]]                                         && echo node   && return
+    [[ -f pyproject.toml || -f setup.py || -f pytest.ini ]]      && echo python && return
+    [[ -f CMakeLists.txt ]]                                       && echo cmake  && return
+    [[ -f Makefile ]] && grep -q 'test' Makefile                  && echo make   && return
+    [[ -f pom.xml ]]                                              && echo maven  && return
+    [[ -f build.gradle || -f build.gradle.kts ]]                  && echo gradle && return
+    echo unknown
+}
+
+run() {
+    local lang; lang=$(_detect)
+    local filter="${1:-}"
+    printf "Testy: %s | %s\n" "$lang" "$(pwd)"
+    case "$lang" in
+        rust)   cargo test $filter ;;
+        go)     go test ./... ${filter:+-run "$filter"} ;;
+        bun)    bun test ${filter:+--filter "$filter"} ;;
+        node)   npm test ;;
+        python) command -v pytest &>/dev/null && pytest ${filter:+-k "$filter"} || python -m unittest discover ;;
+        cmake)  cd build 2>/dev/null && ctest ${filter:+-R "$filter"} ;;
+        make)   make test ;;
+        maven)  mvn test ${filter:+-Dtest="$filter"} ;;
+        gradle) ./gradlew test ;;
+        *)      echo "Nieznany framework — brak Cargo.toml/go.mod/package.json/Makefile/..." ;;
+    esac
+}
+
+coverage() {
+    local lang; lang=$(_detect)
+    case "$lang" in
+        rust)   cargo tarpaulin 2>/dev/null || cargo llvm-cov 2>/dev/null || { echo "Zainstaluj: cargo install cargo-tarpaulin"; return 1; } ;;
+        go)     go test -coverprofile=coverage.out ./... && go tool cover -html=coverage.out -o coverage.html && echo "Raport: coverage.html" ;;
+        python) pytest --cov=. --cov-report=html 2>/dev/null || { echo "Zainstaluj: pip install pytest-cov"; return 1; } ;;
+        node)   npm run coverage 2>/dev/null || npx jest --coverage ;;
+        *)      echo "Brak obslugi coverage dla: $lang" ;;
+    esac
+}
+
+watch() {
+    local lang; lang=$(_detect)
+    case "$lang" in
+        rust)   cargo watch -x test 2>/dev/null || { echo "Zainstaluj: cargo install cargo-watch"; return 1; } ;;
+        go)     gotestsum --watch 2>/dev/null || { echo "Zainstaluj: go install gotest.tools/gotestsum@latest"; return 1; } ;;
+        python) ptw 2>/dev/null || { echo "Zainstaluj: pip install pytest-watch"; return 1; } ;;
+        node)   npm test -- --watch ;;
+        *)      echo "Brak obslugi watch dla: $lang" ;;
+    esac
+}
+
+status() {
+    local lang; lang=$(_detect)
+    echo "Jezyk:   $lang"
+    echo "Katalog: $(pwd)"
+    case "$lang" in
+        rust)   cargo test --no-run 2>&1 | tail -2 ;;
+        go)     go vet ./... && echo "go vet: OK" ;;
+        python) command -v pytest &>/dev/null && pytest --collect-only -q 2>/dev/null | tail -3 ;;
+    esac
+}
+
+info() {
+    status; echo
+    echo "feztest run [filter]    # uruchom testy (opcjonalny filtr)"
+    echo "feztest coverage        # raport pokrycia kodu"
+    echo "feztest watch           # testy przy zmianach plikow"
+    echo "feztest status          # info o frameworku"
+    echo "feztest -a              # uruchom testy"
+    echo "feztest -c [flagi]      # -r [f] -c -w -s"
+}
+
+all() { run; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(run coverage watch status info)
+    local descs=("uruchom testy" "raport pokrycia" "watch — testy przy zmianach" "status" "info + komendy")
+    while true; do
+        echo "=== feztest | jezyk: $(_detect) | $(pwd | xargs basename) ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-10s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -r|--run)      shift; run "$1" ;;
+            -c|--coverage) coverage ;;
+            -w|--watch)    watch ;;
+            -s|--status)   status ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -r [filter] -c -w -s"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)  tui ;;
+    cli|-c)  cli "$@" ;;
+    all|-a)  all ;;
+    info|-i) info ;;
+    run)     run "${@:2}" ;;
+    *)       _do "$1" || echo "Uzycie: feztest [run|coverage|watch|status|tui|cli|-a|-i]" ;;
+esac

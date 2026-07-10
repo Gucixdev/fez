@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# fezTOOL — short description
+# ─────────────── CONFIG ───────────────
+# KEY="value"
+# ──────────────────────────────────────
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+cmd_a() { echo "cmd_a"; }
+cmd_b() { echo "cmd_b"; }
+cmd_c() { echo "cmd_c"; }
+
+status() { echo "fezTOOL status"; }
+
+info() {
+    status; echo
+    echo "fezTOOL cmd_a      # opis a"
+    echo "fezTOOL cmd_b      # opis b"
+    echo "fezTOOL cmd_c      # opis c"
+    echo "fezTOOL -a         # wszystko"
+    echo "fezTOOL -c [flagi] # -a -b -c"
+}
+
+all() { cmd_a; cmd_b; cmd_c; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(cmd_a cmd_b cmd_c status info)
+    local descs=("opis a" "opis b" "opis c" "status" "info + komendy")
+    while true; do
+        echo "=== fezTOOL ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-10s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -a|--cmd-a) cmd_a ;;
+            -b|--cmd-b) cmd_b ;;
+            -c|--cmd-c) cmd_c ;;
+            *) echo "Nieznana flaga: $1"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)  tui ;;
+    cli|-c)  cli "$@" ;;
+    all|-a)  all ;;
+    info|-i) info ;;
+    *)       _do "$1" || echo "Uzycie: fezTOOL [cmd_a|cmd_b|cmd_c|status|tui|cli|-a|-i]" ;;
+esac
