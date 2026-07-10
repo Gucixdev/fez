@@ -6,30 +6,35 @@ _pick_file() {
     local -n _f="$1"
     if [[ -n "${2:-}" ]]; then
         _f="$2"
+    elif command -v fzf &>/dev/null; then
+        _f=$(find . -maxdepth 4 -type f -not -path '*/.git/*' 2>/dev/null | fzf --prompt="Plik: " --preview="head -50 {}" --preview-window=down:10)
     else
         echo -n "Plik: "; read -r _f
     fi
-    [[ -z "$_f" || ! -f "$_f" ]] && { echo "Brak pliku: $_f"; return 1; }
+    if [[ -z "$_f" || ! -f "$_f" ]]; then
+        _err "Brak pliku: $_f"
+        return 1
+    fi
 }
 
 json() {
     local f; _pick_file f "${1:-}" || return 1
-    command -v jq &>/dev/null || { echo "Brakuje: jq  →  sudo pacman -S jq"; return 1; }
+    command -v jq &>/dev/null || { _err "Brakuje: jq  →  sudo pacman -S jq"; return 1; }
     local tmp; tmp=$(mktemp)
-    jq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && echo "JSON posortowany: $f"
+    jq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && _ok "JSON posortowany: $f"
 }
 
 yaml() {
     local f; _pick_file f "${1:-}" || return 1
-    command -v yq &>/dev/null || { echo "Brakuje: yq  →  pip install yq  lub  paru -S yq"; return 1; }
+    command -v yq &>/dev/null || { _err "Brakuje: yq  →  pip install yq  lub  paru -S yq"; return 1; }
     local tmp; tmp=$(mktemp)
-    yq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && echo "YAML posortowany: $f"
+    yq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && _ok "YAML posortowany: $f"
 }
 
 lines() {
     local f; _pick_file f "${1:-}" || return 1
     local tmp; tmp=$(mktemp)
-    sort "$f" > "$tmp" && mv "$tmp" "$f" && echo "Linie posortowane: $f"
+    sort "$f" > "$tmp" && mv "$tmp" "$f" && _ok "Linie posortowane: $f"
 }
 
 dedup() {
@@ -38,18 +43,19 @@ dedup() {
     local tmp; tmp=$(mktemp)
     awk '!seen[$0]++' "$f" > "$tmp" && mv "$tmp" "$f"
     local after; after=$(wc -l < "$f")
-    echo "Dedup: $f  ($before → $after linii, usunieto $((before-after)))"
+    _ok "Dedup: $f  ($before → $after linii, usunieto $((before-after)))"
 }
 
 sort_lines_dedup() {
     local f; _pick_file f "${1:-}" || return 1
     local tmp; tmp=$(mktemp)
-    sort -u "$f" > "$tmp" && mv "$tmp" "$f" && echo "Posortowano + dedup: $f"
+    sort -u "$f" > "$tmp" && mv "$tmp" "$f" && _ok "Posortowano + dedup: $f"
 }
 
 status() {
-    command -v jq &>/dev/null && echo "jq: OK" || echo "jq: BRAK"
-    command -v yq &>/dev/null && echo "yq: OK" || echo "yq: BRAK"
+    command -v jq &>/dev/null && echo "jq:  OK" || _err "jq:  BRAK"
+    command -v yq &>/dev/null && echo "yq:  OK" || _err "yq:  BRAK"
+    command -v fzf &>/dev/null && echo "fzf: OK" || _dim "fzf: brak (wybor pliku recznie)"
 }
 
 info() {

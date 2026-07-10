@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# fezmain (fezmaintenance) — systemd service dashboard, vsv-style
+# fzf: enter=status ctrl-r=restart ctrl-s=start ctrl-x=stop ctrl-e=enable ctrl-d=disable ctrl-l=logs
+# ─────────────── CONFIG ───────────────
+PAGER="${PAGER:-less}"
+# ──────────────────────────────────────
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+_scope() { [[ "${1:-}" == "user" || "${1:-}" == "--user" ]] && echo "--user" || echo ""; }
+_sudo_for() { [[ -z "$1" ]] && echo "sudo" || echo ""; }
+
+browse() {
+    command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
+    local scope; scope=$(_scope "${1:-}")
+    local sd; sd=$(_sudo_for "$scope")
+    local list_cmd="systemctl $scope list-units --type=service --all --no-legend --no-pager"
+
+    eval "$list_cmd" | fzf \
+        --prompt="fezmain${scope:+ user}> " \
+        --header="enter=status  ^r restart  ^s start  ^x stop  ^e enable  ^d disable  ^l logs" \
+        --preview="systemctl $scope status {1} 2>&1 | head -60" \
+        --preview-window=down:60% \
+        --bind="ctrl-r:execute($sd systemctl $scope restart {1})+reload($list_cmd)" \
+        --bind="ctrl-s:execute($sd systemctl $scope start {1})+reload($list_cmd)" \
+        --bind="ctrl-x:execute($sd systemctl $scope stop {1})+reload($list_cmd)" \
+        --bind="ctrl-e:execute($sd systemctl $scope enable {1})+reload($list_cmd)" \
+        --bind="ctrl-d:execute($sd systemctl $scope disable {1})+reload($list_cmd)" \
+        --bind="ctrl-l:execute(journalctl $scope -u {1} -e --no-pager | $PAGER)" \
+        --bind="enter:execute(systemctl $scope status {1} --no-pager | $PAGER)" \
+        > /dev/null
+}
+
+failed() {
+    local scope; scope=$(_scope "${1:-}")
+    local out; out=$(systemctl $scope --failed --no-legend --no-pager 2>/dev/null)
+    [[ -z "$out" ]] && { _ok "Brak failed units"; return 0; }
+    echo "$out"
+}
+
+_unit_arg() {
+    local -n _u="$1"
+    [[ -n "${2:-}" ]] && { _u="$2"; return; }
+    echo -n "Unit: "; read -r _u
+}
+
+start()   { local u; _unit_arg u "${1:-}"; [[ -z "$u" ]] && return 1; sudo systemctl start   "$u" && _ok "Uruchomiono: $u"   || _err "Blad: $u"; }
+stop()    { local u; _unit_arg u "${1:-}"; [[ -z "$u" ]] && return 1; sudo systemctl stop    "$u" && _ok "Zatrzymano: $u"   || _err "Blad: $u"; }
+restart() { local u; _unit_arg u "${1:-}"; [[ -z "$u" ]] && return 1; sudo systemctl restart "$u" && _ok "Zrestartowano: $u" || _err "Blad: $u"; }
+enable()  { local u; _unit_arg u "${1:-}"; [[ -z "$u" ]] && return 1; sudo systemctl enable  "$u" && _ok "Wlaczono: $u"     || _err "Blad: $u"; }
+disable() { local u; _unit_arg u "${1:-}"; [[ -z "$u" ]] && return 1; sudo systemctl disable "$u" && _ok "Wylaczono: $u"    || _err "Blad: $u"; }
+
+logs() {
+    local u; _unit_arg u "${1:-}"
+    [[ -z "$u" ]] && return 1
+    journalctl -u "$u" -e --no-pager | "$PAGER"
+}
+
+status() {
+    command -v systemctl &>/dev/null && echo "systemd: OK" || _err "systemd: BRAK"
+    command -v fzf &>/dev/null && echo "fzf:     OK" || _dim "fzf:     brak (tylko lista, bez interakcji)"
+    printf "Failed:  %s\n" "$(systemctl --failed --no-legend --no-pager 2>/dev/null | wc -l)"
+}
+
+info() {
+    status; echo
+    echo "fezmain [--user]              # TUI (fzf): przegladaj/steruj serwisami"
+    echo "fezmain failed [--user]       # tylko failed units"
+    echo "fezmain start|stop|restart <unit>"
+    echo "fezmain enable|disable <unit>"
+    echo "fezmain logs <unit>           # journalctl -u <unit> -e"
+    echo "fezmain -c [flagi]            # -s|-x|-r|-e|-d|-l <unit>  -f [--user]"
+}
+
+all() { browse; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(browse failed start stop restart enable disable logs status info)
+    local descs=(
+        "fzf: przegladaj/steruj serwisami"
+        "tylko failed units"
+        "uruchom uslugue"
+        "zatrzymaj usluge"
+        "zrestartuj usluge"
+        "wlacz autostart"
+        "wylacz autostart"
+        "logi (journalctl -u)"
+        "status narzedzi"
+        "info + komendy"
+    )
+    while true; do
+        echo "=== fezmain ==="
+        for i in "${!cmds[@]}"; do printf "%2d) %-10s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
+        echo " 0) wyjdz"
+        echo -n "Wybierz: "; read -r n
+        _tui_dispatch "$n" cmds || break
+        echo; echo -n "[Enter]"; read -r
+    done
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -s|--start)   shift; start   "${1:-}" ;;
+            -x|--stop)    shift; stop    "${1:-}" ;;
+            -r|--restart) shift; restart "${1:-}" ;;
+            -e|--enable)  shift; enable  "${1:-}" ;;
+            -d|--disable) shift; disable "${1:-}" ;;
+            -l|--logs)    shift; logs    "${1:-}" ;;
+            -f|--failed)  shift; failed  "${1:-}" ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -s -x -r -e -d -l <unit>  -f [--user]"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)   tui ;;
+    cli|-c)   cli "$@" ;;
+    all|-a)   all ;;
+    info|-i)  info ;;
+    browse)   browse "${2:-}" ;;
+    failed)   failed "${2:-}" ;;
+    start)    start "${2:-}" ;;
+    stop)     stop "${2:-}" ;;
+    restart)  restart "${2:-}" ;;
+    enable)   enable "${2:-}" ;;
+    disable)  disable "${2:-}" ;;
+    logs)     logs "${2:-}" ;;
+    status)   status ;;
+    --user)   browse user ;;
+    "")       tui ;;
+    *)        browse ;;
+esac

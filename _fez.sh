@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # _fez.sh — shared dispatcher; source this in every fez* script
 
+_ok()  { printf '\033[32m%s\033[0m\n' "$*"; }
+_err() { printf '\033[31m%s\033[0m\n' "$*" >&2; }
+_dim() { printf '\033[2m%s\033[0m\n' "$*"; }
+
 _tui_dispatch() {
     local input="$1" cmd
     local -n _cmds="$2"

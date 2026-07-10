@@ -31,7 +31,7 @@ _copy() {
     echo "$1" | wl-copy 2>/dev/null \
      || echo "$1" | xclip -selection clipboard 2>/dev/null \
      || echo "$1" | xsel --clipboard 2>/dev/null \
-     && echo "Skopiowano" || echo "Brak wl-copy/xclip/xsel"
+     && _ok "Skopiowano" || _err "Brak wl-copy/xclip/xsel"
 }
 
 browse() {
@@ -41,14 +41,14 @@ browse() {
 
     local content; content=$(_fetch "$prog")
     if [[ -z "$content" ]]; then
-        echo "Brak strony tldr dla: $prog"
-        command -v tldr &>/dev/null || echo "Zainstaluj: paru -S tldr"
+        _err "Brak strony tldr dla: $prog"
+        command -v tldr &>/dev/null || _dim "Zainstaluj: paru -S tldr"
         return 1
     fi
 
     local descs cmds
     _parse "$content" descs cmds
-    [[ ${#cmds[@]} -eq 0 ]] && { echo "Brak przykladow dla: $prog"; return 1; }
+    [[ ${#cmds[@]} -eq 0 ]] && { _err "Brak przykladow dla: $prog"; return 1; }
 
     while true; do
         echo "=== tldr: $prog ==="
@@ -79,24 +79,33 @@ browse() {
 }
 
 search() {
-    local query="${1}"
-    [[ -z "$query" ]] && { echo -n "Szukaj: "; read -r query; }
-    [[ -z "$query" ]] && return 1
-    command -v tldr &>/dev/null \
-        && tldr --list 2>/dev/null | grep -i "$query" | column \
-        || echo "tldr nie zainstalowany — paru -S tldr"
+    command -v tldr &>/dev/null || { _err "tldr nie zainstalowany — paru -S tldr"; return 1; }
+    local query="${1:-}"
+    local matches; matches=$(tldr --list 2>/dev/null | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$')
+    [[ -n "$query" ]] && matches=$(echo "$matches" | grep -i "$query")
+    [[ -z "$matches" ]] && { _err "Brak wynikow dla: $query"; return 1; }
+
+    local pick
+    if command -v fzf &>/dev/null; then
+        pick=$(echo "$matches" | fzf --prompt="tldr search> " --preview 'tldr {} 2>/dev/null')
+    else
+        echo "$matches" | column
+        echo -n "Ktora komenda? "; read -r pick
+    fi
+    [[ -n "$pick" ]] && browse "$pick"
 }
 
 status() {
-    command -v tldr &>/dev/null && echo "tldr: OK ($(tldr --version 2>/dev/null))" || echo "tldr: BRAK (paru -S tldr)"
-    command -v curl &>/dev/null && echo "curl: OK" || echo "curl: BRAK (fallback HTTP)"
+    command -v tldr &>/dev/null && echo "tldr: OK ($(tldr --version 2>/dev/null))" || _err "tldr: BRAK (paru -S tldr)"
+    command -v curl &>/dev/null && echo "curl: OK" || _dim "curl: brak (bez fallback HTTP)"
+    command -v fzf  &>/dev/null && echo "fzf:  OK" || _dim "fzf:  brak (wybor recznie)"
 }
 
 info() {
     status; echo
     echo "feztldr <komenda>          # TUI browser dla tldr strony"
     echo "feztldr browse [komenda]   # to samo"
-    echo "feztldr search <query>     # szukaj komendy w tldr"
+    echo "feztldr search [query]     # fzf: szukaj + podglad + od razu browse"
     echo "feztldr -c <komenda>       # --browse <komenda>"
 }
 
@@ -105,7 +114,13 @@ all() { browse; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    echo -n "Komenda do wyszukania: "; read -r prog
+    local prog
+    if command -v tldr &>/dev/null && command -v fzf &>/dev/null; then
+        prog=$(tldr --list 2>/dev/null | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' \
+            | fzf --prompt="feztldr> " --preview 'tldr {} 2>/dev/null')
+    else
+        echo -n "Komenda do wyszukania: "; read -r prog
+    fi
     [[ -z "$prog" ]] && return
     browse "$prog"
 }

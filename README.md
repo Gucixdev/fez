@@ -24,13 +24,16 @@ feztool -i       # print command reference
 |---|---|
 | `fezbackup` | backup |
 | `fezbt` | bluetooth |
+| `fezbuild` | C build tool — nob.c-inspired, incremental, no Makefile needed |
 | `fezcleaner` | system cleanup — RAM, logs, cache, packages, trash |
 | `fezdeploy` | deploy — git/github/gitlab/rsync/ftp/scp |
 | `fezgh2fp` | GitHub repo → Flatpak build |
+| `fezmain` | systemd service dashboard — vsv-style fzf TUI (start/stop/restart/logs) |
+| `fezman` | fzf TUI for man pages, with live preview and apropos search |
 | `fezremote` | ssh tunneling / remote access |
 | `fezscenario` | record and replay command scenarios |
 | `fezsort` | sort/dedup JSON, YAML, plain text files |
-| `feztldr` | disposable TUI generated from tldr pages |
+| `feztldr` | fzf TUI generated from tldr pages |
 | `feztrash` | safe `rm` — moves to `~/.trash`, dedups by suffix, restore/purge/empty |
 | `fezwifi` | wifi management |
 
