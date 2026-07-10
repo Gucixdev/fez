@@ -43,6 +43,7 @@ feztldr  - tworzy TUI dla wybranego narzedzia tldr by nie trzeba bylo pamietac f
 fezremote  - tunneling ssh, ssh ogolnie  
 fezsort - json/toml/xml nw co najprosciej najlepiej based sortowanie plikow  
 fezgh2fp - github to flatpak poprostu wklejasz link i automatycznie buduje flatpak obsluguje tez update 
+feztrash - zamiast rm -rf, przenosi do ~/.trash, duplikaty dostaja numer na koncu, restore/purge/empty 
 
 
 ## Architecture
