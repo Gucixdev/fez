@@ -59,6 +59,16 @@ _dockertool() {
     command -v docker &>/dev/null && { echo docker; return; }
 }
 
+# zgaduje plik startowy dla "aplikacji" pythonowej (nie biblioteki) —
+# uzywane tylko w fallbacku, gdy `pip install .` odmawia (patrz python w
+# _generate_manifest)
+_py_entry_guess() {
+    local dir="$1" f
+    for f in main.py app.py run.py __main__.py; do
+        [[ -f "$dir/$f" ]] && { echo "$f"; return; }
+    done
+}
+
 # wyciaga sciezke z ostatniego ENTRYPOINT/CMD w Dockerfile (json-array lub shell)
 _docker_entrypoint() {
     local dockerfile="$1"
@@ -149,6 +159,34 @@ modules:
 EOF
             ;;
         python)
+            # wiele "aplikacji" pythonowych (nie bibliotek) nie da sie
+            # `pip install .` — setuptools odmawia zgadywac package layout
+            # gdy w repo jest kilka top-level folderow (typowe dla apek
+            # uruchamianych jako `python main.py`, nie importowanych jako
+            # pakiet). install.sh probuje normalnego pip install jako
+            # pierwsze (dziala dla prawdziwych pakietow), a jesli to sie nie
+            # uda — kopiuje repo w calosci do /app/share i robi wrapper
+            # ktory odpala wykryty plik startowy bezposrednio.
+            local entry; entry=$(_py_entry_guess "$repo_dir")
+            local install_script="$GITFLAT_DIR/$repo_name-install.sh"
+            cat > "$install_script" <<EOF
+#!/bin/sh
+set -e
+if pip3 install --prefix=/app --no-build-isolation . ; then
+    exit 0
+fi
+echo "pip install . nie zadzialalo (flat-layout / aplikacja, nie pakiet) — kopiuje w calosci i odpalam bezposrednio"
+[ -f requirements.txt ] && pip3 install --prefix=/app -r requirements.txt
+mkdir -p /app/share/$repo_name /app/bin
+cp -r . /app/share/$repo_name
+cat > /app/bin/$repo_name <<'WRAP'
+#!/bin/sh
+exec python3 /app/share/$repo_name/${entry:-main.py} "\$@"
+WRAP
+chmod +x /app/bin/$repo_name
+EOF
+            chmod +x "$install_script"
+
             cat > "$manifest" <<EOF
 app-id: $app_id
 runtime: org.freedesktop.Platform
@@ -162,11 +200,14 @@ modules:
   - name: $repo_name
     buildsystem: simple
     build-commands:
-      - pip3 install --prefix=/app --no-build-isolation .
+      - sh $repo_name-install.sh
     sources:
       - type: dir
         path: $repo_dir
+      - type: file
+        path: $install_script
 EOF
+            [[ -z "$entry" ]] && _dim "Nie znaleziono main.py/app.py/run.py/__main__.py — jesli fallback zadziala, popraw entry point w $install_script"
             ;;
         go)
             cat > "$manifest" <<EOF
