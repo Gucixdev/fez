@@ -44,6 +44,14 @@ _pick_host() {
     [[ -z "$_ph" ]] && return 1
 }
 
+_hostlines() {
+    local h hn u p
+    for h in $(_hosts); do
+        hn=$(_field "$h" HostName); u=$(_field "$h" User); p=$(_field "$h" Port); p="${p:-22}"
+        printf "%s\t%s@%s:%s\n" "$h" "${u:-?}" "${hn:-?}" "$p"
+    done
+}
+
 _dead_cleanup() {
     [[ ! -f "$_PIDS" ]] && return
     local tmp; tmp=$(mktemp)
@@ -59,6 +67,27 @@ _active_count() {
 }
 
 list() { _show_hosts; }
+
+browse() {
+    command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
+    [[ -z "$(_hosts)" ]] && { _err "Brak hostow. Dodaj: fezremote add"; return 1; }
+    local self="${BASH_SOURCE[0]}"
+    local list_cmd="\"$self\" _hostlines"
+
+    eval "$list_cmd" | fzf \
+        --prompt="fezremote> " \
+        --delimiter=$'\t' \
+        --header="enter=connect  ^p=ping  ^r=zapomnij  ^n=dodaj  ^l/^e/^o=tunel L/R/SOCKS5  ^t=tunele" \
+        --bind="ctrl-n:execute(\"$self\" add)+reload($list_cmd)" \
+        --bind="ctrl-r:execute(\"$self\" remove {1})+reload($list_cmd)" \
+        --bind="ctrl-p:execute(\"$self\" ping {1}; read -n1 -p '[Enter]')" \
+        --bind="ctrl-l:execute(\"$self\" tunnel_local {1})" \
+        --bind="ctrl-e:execute(\"$self\" tunnel_remote {1})" \
+        --bind="ctrl-o:execute(\"$self\" tunnel_socks {1})" \
+        --bind="ctrl-t:execute(\"$self\" tunnels; read -n1 -p '[Enter]')" \
+        --bind="enter:execute(\"$self\" connect {1})" \
+        > /dev/null
+}
 
 connect() {
     local host; _pick_host host "${1:-}" || return 1
@@ -168,7 +197,7 @@ status() {
 
 info() {
     status; echo
-    echo "fezremote                         # TUI"
+    echo "fezremote                         # fzf: lista hostow, enter=connect ^p/^r/^n/^l/^e/^o/^t"
     echo "fezremote connect [host]          # ssh connect"
     echo "fezremote add [alias]             # dodaj hosta"
     echo "fezremote remove [alias]          # usun hosta"
@@ -181,28 +210,11 @@ info() {
     echo "fezremote -c [flagi]              # -l -c -a -r -L -R -D -t -k -p -s"
 }
 
-all() { tunnels; }
+all() { browse; }
 
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
-tui() {
-    local cmds=(list connect add remove ping tunnel_local tunnel_remote tunnel_socks tunnels kill_tunnel status info)
-    local descs=(
-        "lista hostow"
-        "connect (ssh)"
-        "dodaj hosta"
-        "usun hosta"
-        "sprawdz dostepnosc"
-        "tunel lokalny (L)"
-        "tunel zdalny (R)"
-        "SOCKS5 proxy (D)"
-        "aktywne tunele"
-        "zatrzymaj tunel"
-        "status"
-        "info + komendy"
-    )
-    _fzf_menu "fezremote | $(_hosts | wc -l) hostow | $(_active_count) tuneli" cmds descs
-}
+tui() { browse; }
 
 cli() {
     shift
@@ -230,6 +242,8 @@ case "${1:-tui}" in
     cli|-C)        cli "$@" ;;
     all|-a)        all ;;
     info|-i)       info ;;
+    browse)        browse ;;
+    _hostlines)    _hostlines ;;
     connect)       connect "${@:2}" ;;
     add)           add "${@:2}" ;;
     remove)        remove "${@:2}" ;;
