@@ -6,7 +6,7 @@ FP_BUILD_DIR="$HOME/.local/share/fezgitflat/builds"
 FP_REPO_DIR="$HOME/.local/share/fezgitflat/repos"
 RUNTIME_VER_FALLBACK="24.08"   # gdy nic zainstalowane lokalnie
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 mkdir -p "$FP_BUILD_DIR" "$FP_REPO_DIR"
 
 # najnowsza wspolna wersja Sdk+Platform juz zainstalowana lokalnie — zeby nie

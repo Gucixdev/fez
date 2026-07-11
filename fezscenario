@@ -4,7 +4,7 @@
 # ─────────────── CONFIG ───────────────
 SCENARIO_DIR="$HOME/.local/share/fezscenario"
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _bg_kill() {
     # kill "$PID" tylko trafia w widoczny proces sudo — jego dziecko (evemu-record/play

@@ -5,7 +5,7 @@
 LOG_DAYS=7        # logi starsze niz N dni
 PACMAN_KEEP=2     # ile wersji paczek zostawic w cache
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 ram() {
     sync; sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'

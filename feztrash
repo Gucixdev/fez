@@ -8,7 +8,7 @@ TRASH_DIR="$HOME/.trash"
 LOG_FILE="$TRASH_DIR/.trash.log"   # ts \t oryginalna_sciezka \t nazwa_w_koszu
 KEEP_DAYS=30                       # domyslny wiek dla purge
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _unique_name() {
     local name="$1" base ext dest="$1" n=1

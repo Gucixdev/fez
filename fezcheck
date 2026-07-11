@@ -4,7 +4,7 @@
 # ─────────────── CONFIG ───────────────
 BIN_DIR="$HOME/.local/bin"   # gdzie sprawdzamy "installed" dla projektow typu fez
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _dir() { echo "${1:-.}"; }
 

@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
+# feztoolbox — ~/.toolbox: wrzuc tam dowolny skrypt, "toolbox" daje fzf do wyboru i odpala
+# ─────────────── CONFIG ───────────────
+TOOLBOX_DIR="$HOME/.toolbox"
+# ──────────────────────────────────────
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
+
+_scripts() {
+    mkdir -p "$TOOLBOX_DIR"
+    find "$TOOLBOX_DIR" -maxdepth 1 -type f -not -name '.*' 2>/dev/null | sort
+}
+
+run() {
+    mkdir -p "$TOOLBOX_DIR"
+    command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
+    local files; mapfile -t files < <(_scripts)
+    if [[ ${#files[@]} -eq 0 ]]; then
+        _dim "Pusto w $TOOLBOX_DIR — wrzuc tam skrypty (przeciagnij w plikach albo: feztoolbox add <plik>)"
+        return 1
+    fi
+
+    local pick; pick=$(printf '%s\n' "${files[@]}" | fzf \
+        --prompt="toolbox> " --with-nth=-1 --delimiter=/ \
+        --preview='head -c 2000 {} 2>/dev/null' --preview-window=down:15)
+    [[ -z "$pick" ]] && return 1
+
+    [[ -x "$pick" ]] || chmod +x "$pick" 2>/dev/null
+    echo "--- $(basename "$pick") ---"
+    "$pick"
+}
+
+list() {
+    local files; mapfile -t files < <(_scripts)
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo "Pusto w $TOOLBOX_DIR"
+        return
+    fi
+    local f
+    for f in "${files[@]}"; do
+        [[ -x "$f" ]] && printf "  %-30s +x\n" "$(basename "$f")" \
+            || printf "  %-30s (bez +x, nadana zostanie przy odpaleniu)\n" "$(basename "$f")"
+    done
+}
+
+add() {
+    local src="${1:-}"
+    [[ -z "$src" ]] && { echo -n "Plik do dodania: "; read -r src; }
+    [[ -z "$src" || ! -f "$src" ]] && { _err "Brak pliku: $src"; return 1; }
+    mkdir -p "$TOOLBOX_DIR"
+    cp -- "$src" "$TOOLBOX_DIR/$(basename "$src")"
+    chmod +x "$TOOLBOX_DIR/$(basename "$src")"
+    _ok "Dodano: $(basename "$src")"
+}
+
+status() {
+    printf "Folder:  %s\n" "$TOOLBOX_DIR"
+    printf "Skrypty: %s\n" "$(_scripts | wc -l)"
+    command -v fzf &>/dev/null && echo "fzf:     OK" || _err "fzf:     BRAK"
+}
+
+info() {
+    status; echo
+    echo "feztoolbox            # fzf: wybierz i odpal skrypt z ~/.toolbox"
+    echo "feztoolbox list       # lista skryptow"
+    echo "feztoolbox add <plik> # skopiuj plik do ~/.toolbox (+x automatycznie)"
+    echo "feztoolbox -c [flagi] # -a <plik> -l"
+}
+
+all() { run; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() { run; }
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -a|--add)  shift; add "$1" ;;
+            -l|--list) list ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -a <plik> -l"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)  tui ;;
+    cli|-c)  cli "$@" ;;
+    all|-a)  all ;;
+    info|-i) info ;;
+    list)    list ;;
+    add)     add "${2:-}" ;;
+    *)       _do "$1" || echo "Uzycie: feztoolbox [list|add|tui|cli|-a|-i]" ;;
+esac

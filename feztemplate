@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # feztemplate — generuje szkielet nowego narzedzia fez* (standardowy interfejs)
 # ─────────────── CONFIG ───────────────
-FEZDIR="$(dirname "${BASH_SOURCE[0]}")"
+FEZDIR="$(dirname "$(realpath "${BASH_SOURCE[0]}")")"
 # ──────────────────────────────────────
 . "$FEZDIR/_fez.sh"
 
@@ -17,7 +17,7 @@ new() {
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # $toolname — TODO: krotki opis
-. "\$(dirname "\${BASH_SOURCE[0]}")/_fez.sh"
+. "\$(dirname "\$(realpath "\${BASH_SOURCE[0]}")")/_fez.sh"
 
 cmd_a() { echo "cmd_a"; }
 

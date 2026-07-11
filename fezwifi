@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # fezwifi — WiFi manager (nmcli/iwd/iwlist auto-detect)
 # nmcli: tui to jeden ekran fzf z lista sieci — enter=connect ^d=disconnect ^f=zapomnij ^r=rescan
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _mode() {
     command -v nmcli  &>/dev/null && echo nmcli  && return

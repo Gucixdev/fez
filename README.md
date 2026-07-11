@@ -36,6 +36,7 @@ feztool -i       # print command reference
 | `fezremote` | ssh host manager + tunnels — fzf browser (connect/ping/forget/tunnel L·R·SOCKS5) |
 | `fezscenario` | record and replay keyboard/mouse/screen scenarios |
 | `fezsort` | organize files in a folder — by extension, date, size, or find/remove duplicates |
+| `feztoolbox` | `~/.toolbox` folder — drop in any script, `feztoolbox` gives an fzf picker to run it |
 | `feztest` | run tests for any project — auto-detects rust/go/node/python/bats/plain shell |
 | `feztemplate` | generates a new `fez*` tool skeleton with the standard interface |
 | `feztldr` | fzf TUI generated from tldr pages |

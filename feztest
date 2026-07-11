@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # feztest — run tests for any project (auto-detect framework)
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _shell_scripts() {
     find . -maxdepth 3 -type f -not -path '*/.git/*' 2>/dev/null | while IFS= read -r f; do

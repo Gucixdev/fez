@@ -4,7 +4,7 @@
 # ─────────────── CONFIG ───────────────
 REFRESH=2   # sekundy odswiezania dla live/top
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _default_iface() { ip route 2>/dev/null | awk '/default/{print $5; exit}'; }
 

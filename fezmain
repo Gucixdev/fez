@@ -5,7 +5,7 @@
 # ─────────────── CONFIG ───────────────
 PAGER="${PAGER:-less}"
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _scope() { [[ "${1:-}" == "user" || "${1:-}" == "--user" ]] && echo "--user" || echo ""; }
 _sudo_for() { [[ -z "$1" ]] && echo "sudo" || echo ""; }

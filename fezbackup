@@ -5,7 +5,7 @@
 SNAP_DIR="/snapshots"
 DEV="/dev/sda2"
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 DATE=$(date +%Y%m%d-%H%M%S)
 

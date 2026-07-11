@@ -5,7 +5,7 @@
 SSH_CFG="$HOME/.ssh/config"
 _PIDS="$HOME/.local/share/fezremote/pids"
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 mkdir -p "$(dirname "$_PIDS")" 2>/dev/null
 
 _hosts() { grep '^Host ' "$SSH_CFG" 2>/dev/null | awk '{print $2}' | grep -v '[*?]'; }

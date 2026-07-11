@@ -2,7 +2,7 @@
 # shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # fezbt — Bluetooth manager (bluetoothctl/bluez-tools auto-detect)
 # btctl: tui to jeden ekran fzf — enter=connect ^d=disconnect ^r=zapomnij ^s=rescan
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 # MAC \t nazwa \t parowane(yes/no) \t polaczono(yes/no)
 _BT_LIST='bluetoothctl devices 2>/dev/null | while read -r _ mac name; do p=no; c=no; info=$(bluetoothctl info "$mac" 2>/dev/null); grep -q "Paired: yes" <<< "$info" && p=yes; grep -q "Connected: yes" <<< "$info" && c=yes; printf "%s\t%s\t%s\t%s\n" "$mac" "${name:-?}" "$p" "$c"; done'

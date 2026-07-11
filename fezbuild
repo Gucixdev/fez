@@ -8,7 +8,7 @@ CFLAGS="${CFLAGS:--Wall -Wextra -g}"
 LDFLAGS="${LDFLAGS:-}"
 BUILD_DIR="build"
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 BIN_OUT=""   # ustawiane przez build(), sciezka do wynikowej binarki
 

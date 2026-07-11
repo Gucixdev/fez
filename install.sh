@@ -14,6 +14,9 @@ for f in "$FEZDIR"/fez*; do
     printf "  linked: %s\n" "$(basename "$f")"
 done
 
+ln -sf "$FEZDIR/feztoolbox" "$BIN/toolbox"
+printf "  linked: %s (alias -> feztoolbox)\n" "toolbox"
+
 if [[ ":$PATH:" != *":$BIN:"* ]]; then
     echo
     echo "Add to ~/.bashrc / ~/.zshrc:"

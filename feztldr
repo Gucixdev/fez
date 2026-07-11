@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2178,SC2128  # "lines" to string budowany w petli, nie tablica
 # feztldr — TUI browser for tldr pages; pick example, copy or run
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _fetch() {
     local prog="$1"

@@ -4,7 +4,7 @@
 # ─────────────── CONFIG ───────────────
 PREVIEW_WIDTH="right:70%"
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
 
 _need_fzf() { command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }; }
 
