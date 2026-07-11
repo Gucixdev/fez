@@ -71,7 +71,7 @@ _rec_pick_inputs() {
 
     if command -v fzf &>/dev/null; then
         printf '%b\n' "${items[@]}" \
-            | fzf -m --delimiter=$'\t' --prompt="nagraj (tab=zaznacz, enter=potwierdz)> " \
+            | fzf -m --bind space:toggle+down --delimiter=$'\t' --prompt="nagraj (spacja=zaznacz, enter=potwierdz)> " \
             | awk -F'\t' '{print $1}'
     else
         local it name
@@ -257,7 +257,7 @@ delete() {
     local to_delete=()
 
     if command -v fzf &>/dev/null; then
-        local picks; mapfile -t picks < <(_scn_lines | fzf -m --prompt="usun (tab=zaznacz, enter=potwierdz)> ")
+        local picks; mapfile -t picks < <(_scn_lines | fzf -m --bind space:toggle+down --prompt="usun (spacja=zaznacz, enter=potwierdz)> ")
         local p; for p in "${picks[@]}"; do to_delete+=("$(awk '{print $1}' <<< "$p")"); done
     else
         local selected=(); for d in "${dirs[@]}"; do selected+=(0); done

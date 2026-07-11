@@ -61,7 +61,7 @@ delete() {
     local to_delete=()
 
     if command -v fzf &>/dev/null; then
-        local picks; mapfile -t picks < <(_snap_lines | fzf -m --prompt="usun (tab=zaznacz, enter=potwierdz)> ")
+        local picks; mapfile -t picks < <(_snap_lines | fzf -m --bind space:toggle+down --prompt="usun (spacja=zaznacz, enter=potwierdz)> ")
         local p name
         for p in "${picks[@]}"; do
             name=$(awk '{print $1}' <<< "$p")

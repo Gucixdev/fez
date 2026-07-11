@@ -27,11 +27,26 @@ _list_local() {
     for d in "$FP_REPO_DIR"/*/; do [[ -d "$d" ]] && _out+=("$d"); done
 }
 
+search() {
+    command -v gh &>/dev/null || { _err "Brakuje: gh  →  sudo pacman -S github-cli"; return 1; }
+    command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
+    local query="${1:-}"
+    [[ -z "$query" ]] && { echo -n "Szukaj na GitHub: " >&2; read -r query; }
+    [[ -z "$query" ]] && return 1
+    local pick; pick=$(gh search repos "$query" --limit 30 2>/dev/null \
+        | fzf --delimiter=$'\t' --with-nth=1,2 --prompt="github ($query)> " \
+              --preview='gh repo view {1} 2>/dev/null' --preview-window=down:70%)
+    [[ -z "$pick" ]] && return 1
+    echo "https://github.com/$(awk -F'\t' '{print $1}' <<< "$pick")"
+}
+
 build() {
     _check_deps || return 1
     local url="${1}"
-    [[ -z "$url" ]] && { echo -n "GitHub URL: "; read -r url; }
-    [[ -z "$url" ]] && { echo "URL wymagany"; return 1; }
+    if [[ -z "$url" ]]; then
+        echo -n "GitHub URL (Enter = szukaj po nazwie): "; read -r url
+        [[ -z "$url" ]] && { url=$(search); [[ -z "$url" ]] && { echo "Brak wyboru"; return 1; }; }
+    fi
     [[ "$url" != *github.com* ]] && { echo "Podaj URL GitHub: https://github.com/user/repo"; return 1; }
 
     local app_id; app_id=$(_app_id_from_url "$url")
@@ -111,11 +126,12 @@ status() {
 
 info() {
     status; echo
-    echo "fezgh2fp build [url]    # zbuduj + zainstaluj flatpak z GitHub"
+    echo "fezgh2fp build [url]    # zbuduj + zainstaluj flatpak z GitHub (Enter=szukaj)"
+    echo "fezgh2fp search [fraza] # fzf: szukaj repo na GitHub (gh search repos)"
     echo "fezgh2fp update [app]   # zaktualizuj istniejacy flatpak"
     echo "fezgh2fp list           # lista zbudowanych flatpakow"
     echo "fezgh2fp status         # status"
-    echo "fezgh2fp -c [flagi]     # -b <url> -u <app> -l"
+    echo "fezgh2fp -c [flagi]     # -b <url> -g <fraza> -u <app> -l"
 }
 
 all() { list; }
@@ -125,7 +141,7 @@ _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 tui() {
     local cmds=(build update list)
     local descs=(
-        "zbuduj + zainstaluj flatpak z GitHub URL"
+        "zbuduj + zainstaluj flatpak z GitHub URL (Enter=szukaj po nazwie)"
         "zaktualizuj istniejacy flatpak"
         "lista zbudowanych flatpakow"
     )
@@ -137,9 +153,10 @@ cli() {
     while [[ $# -gt 0 ]]; do
         case "$1" in
             -b|--build)  shift; build "$1" ;;
+            -g|--search) shift; build "$(search "$1")" ;;
             -u|--update) shift; update "$1" ;;
             -l|--list)   list ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -b <url> -u <app> -l"; return 1 ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -b <url> -g <fraza> -u <app> -l"; return 1 ;;
         esac
         shift
     done
@@ -151,6 +168,7 @@ case "${1:-tui}" in
     all|-a)  all ;;
     info|-i) info ;;
     build)   build "${@:2}" ;;
+    search)  search "${@:2}" ;;
     update)  update "${@:2}" ;;
-    *)       _do "$1" || echo "Uzycie: fezgh2fp [build|update|list|status|tui|cli|-a|-i]" ;;
+    *)       _do "$1" || echo "Uzycie: fezgh2fp [build|update|list|search|status|tui|cli|-a|-i]" ;;
 esac
