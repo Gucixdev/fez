@@ -109,7 +109,7 @@ modules:
       - cargo install --path . --root /app
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
             ;;
         cmake)
@@ -127,7 +127,7 @@ modules:
       - -DCMAKE_BUILD_TYPE=Release
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
             ;;
         make)
@@ -145,7 +145,7 @@ modules:
       - install -Dm755 $repo_name /app/bin/$repo_name
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
             ;;
         python)
@@ -165,7 +165,7 @@ modules:
       - pip3 install --prefix=/app --no-build-isolation .
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
             ;;
         go)
@@ -190,7 +190,7 @@ modules:
       - go build -o /app/bin/$repo_name .
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
             ;;
         docker)
@@ -210,7 +210,7 @@ modules:
       - install -Dm755 $repo_name /app/bin/$repo_name
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
                 echo "binary"
                 return
@@ -259,7 +259,7 @@ modules:
       - install -Dm755 .fezgitflat-bin /app/bin/$(basename "$entry")
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
             ;;
         *)
@@ -276,7 +276,7 @@ modules:
       - install -Dm755 $repo_name /app/bin/$repo_name
     sources:
       - type: dir
-        path: ..
+        path: $repo_dir
 EOF
             ;;
     esac
@@ -334,6 +334,12 @@ build() {
     local repo_name; repo_name=$(echo "$url" | sed 's|.*/||' | sed 's/\.git$//')
     local repo_dir="$GITFLAT_DIR/$repo_name"
     local build_dir="$GITFLAT_DIR/$repo_name-build"
+    # manifesty WYGENEROWANE przez fezgitflat zyja TU, poza repo_dir — nigdy w
+    # repo_dir/flatpak/, zeby na kolejnym build() nie pomylic wlasnego,
+    # (mozliwe ze juz przestarzalego) wyjscia z manifestem dostarczonym przez
+    # sam projekt. Jesli juz istnieje (np. z poprzedniego builda), uzywamy go
+    # ponownie bez regeneracji — moglo byc recznie poprawione.
+    local gen_manifest="$GITFLAT_DIR/$repo_name-manifest.yaml"
 
     echo "App ID:  $app_id"
     echo "Klonuje: $url"
@@ -343,11 +349,12 @@ build() {
     }
 
     local manifest="$repo_dir/flatpak/$app_id.yaml"
-    [[ ! -f "$manifest" ]] && manifest=$(find "$repo_dir" -name "*.yaml" -path "*/flatpak/*" 2>/dev/null | head -1)
-    [[ ! -f "$manifest" ]] && manifest=$(find "$repo_dir" -name "*.json" -path "*/flatpak/*" 2>/dev/null | head -1)
+    [[ -f "$manifest" ]] || manifest=$(find "$repo_dir" -name "*.yaml" -path "*/flatpak/*" 2>/dev/null | head -1)
+    [[ -f "$manifest" ]] || manifest=$(find "$repo_dir" -name "*.json" -path "*/flatpak/*" 2>/dev/null | head -1)
+    [[ -z "$manifest" && -f "$gen_manifest" ]] && manifest="$gen_manifest"
 
     if [[ -z "$manifest" ]]; then
-        manifest="$repo_dir/flatpak/$app_id.yaml"
+        manifest="$gen_manifest"
         local lang; lang=$(_generate_manifest "$repo_dir" "$repo_name" "$app_id" "$manifest")
         _ok "Brak manifestu w repo — wygenerowano dla wykrytego typu: $lang"
         echo "Manifest: $manifest"
