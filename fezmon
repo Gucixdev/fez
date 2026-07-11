@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
+# fezmon — lekki monitor zasobow: CPU/RAM/dysk/siec na zywo + fzf-picker procesow (kill)
+# ─────────────── CONFIG ───────────────
+REFRESH=2   # sekundy odswiezania dla live/top
+# ──────────────────────────────────────
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+_default_iface() { ip route 2>/dev/null | awk '/default/{print $5; exit}'; }
+
+cpu() {
+    uptime
+    echo
+    printf "%-8s %-6s %-6s %s\n" "PID" "%CPU" "%MEM" "COMM"
+    ps -eo pid,pcpu,pmem,comm --sort=-pcpu --no-headers 2>/dev/null | head -10
+}
+
+mem() { free -h; }
+
+disk() { df -h -x tmpfs -x devtmpfs -x squashfs 2>/dev/null; }
+
+gpu() {
+    if command -v nvidia-smi &>/dev/null; then
+        printf "%-25s %5s %5s %12s %10s\n" "GPU" "TEMP" "UTIL" "PAMIEC" "MOC"
+        nvidia-smi --query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw \
+            --format=csv,noheader,nounits 2>/dev/null \
+            | awk -F', *' '{printf "%-25s %4s°C %4s%% %5s/%sMiB %6sW\n", $1,$2,$3,$4,$5,$6}'
+    elif command -v radeontop &>/dev/null; then
+        timeout 2 radeontop -d - -l 1 2>/dev/null
+    elif command -v intel_gpu_top &>/dev/null; then
+        timeout 2 intel_gpu_top -o - -s 1000 2>/dev/null | tail -5
+    else
+        _dim "Brak nvidia-smi/radeontop/intel_gpu_top — pokazuje tylko karte:"
+        lspci 2>/dev/null | grep -iE 'vga compatible|3d controller'
+    fi
+}
+
+sock() {
+    echo "=== LISTEN ==="
+    ss -tunlp 2>/dev/null | tail -n +2
+    echo
+    echo "=== ESTABLISHED (top 20) ==="
+    ss -tunp state established 2>/dev/null | tail -n +2 | head -20
+}
+
+net() {
+    local iface="${1:-$(_default_iface)}"
+    [[ -z "$iface" ]] && { _err "Brak domyslnego interfejsu — podaj recznie: fezmon net <iface>"; return 1; }
+    [[ ! -e "/sys/class/net/$iface" ]] && { _err "Nie ma takiego interfejsu: $iface"; return 1; }
+    local r1 t1 r2 t2
+    read -r r1 t1 < <(awk -v i="$iface:" '$1==i{print $2, $10}' /proc/net/dev)
+    sleep 1
+    read -r r2 t2 < <(awk -v i="$iface:" '$1==i{print $2, $10}' /proc/net/dev)
+    printf "Iface: %s\n" "$iface"
+    printf "RX:    %s/s\n" "$(numfmt --to=iec "$((r2 - r1))" 2>/dev/null)B"
+    printf "TX:    %s/s\n" "$(numfmt --to=iec "$((t2 - t1))" 2>/dev/null)B"
+}
+
+_dashboard() {
+    echo "=== CPU ==="
+    cpu
+    echo
+    echo "=== RAM ==="
+    mem
+    echo
+    echo "=== GPU ==="
+    gpu
+    echo
+    echo "=== DYSK ==="
+    disk
+}
+
+live() {
+    command -v watch &>/dev/null || { _err "Brakuje: watch (procps-ng)"; return 1; }
+    local self="${BASH_SOURCE[0]}"
+    watch -n "$REFRESH" -c "\"$self\" _dashboard"
+}
+
+top() {
+    command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
+    local list_cmd='printf "%-8s %-6s %-6s %s\n" PID %CPU %MEM COMM; ps -eo pid,pcpu,pmem,comm --sort=-pcpu --no-headers | head -50'
+    eval "$list_cmd" | fzf \
+        --prompt="fezmon> " --header-lines=1 \
+        --header="^k=kill (TERM)  ^9=kill -9  ^r=odswiez" \
+        --preview='cat /proc/{1}/status 2>/dev/null | head -20' \
+        --preview-window=down:50% \
+        --bind="ctrl-r:reload($list_cmd)" \
+        --bind="ctrl-k:execute-silent(kill {1})+reload($list_cmd)" \
+        --bind="ctrl-9:execute-silent(kill -9 {1})+reload($list_cmd)" \
+        > /dev/null
+}
+
+status() {
+    printf "Odswiezanie: %ss\n" "$REFRESH"
+    printf "Iface:       %s\n" "$(_default_iface)"
+    command -v watch &>/dev/null && echo "watch: OK" || _dim "watch: brak (live niedostepne)"
+    command -v fzf   &>/dev/null && echo "fzf:   OK" || _dim "fzf:   brak (top niedostepne)"
+}
+
+info() {
+    status; echo
+    echo "fezmon live         # CPU/RAM/GPU/dysk na zywo (watch, co ${REFRESH}s)"
+    echo "fezmon top          # fzf: procesy wg %CPU, ^k=kill ^9=kill -9 ^r=odswiez"
+    echo "fezmon cpu          # obciazenie + top procesy (jednorazowo)"
+    echo "fezmon mem          # pamiec (free -h)"
+    echo "fezmon disk         # zajetosc dyskow"
+    echo "fezmon gpu          # nvidia-smi/radeontop/intel_gpu_top"
+    echo "fezmon net [iface]  # przepustowosc RX/TX (1s pomiar)"
+    echo "fezmon sock         # LISTEN + ESTABLISHED (ss)"
+    echo "fezmon -c [flagi]   # -l -t -c -m -d -g -n [iface] -s"
+}
+
+all() { live; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(live top cpu mem disk gpu net sock)
+    local descs=(
+        "CPU/RAM/GPU/dysk na zywo"
+        "fzf: procesy wg %CPU (kill)"
+        "obciazenie + top procesy"
+        "pamiec"
+        "zajetosc dyskow"
+        "karta graficzna"
+        "przepustowosc sieci"
+        "polaczenia (LISTEN + ESTABLISHED)"
+    )
+    _fzf_menu "fezmon" cmds descs
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -l|--live) live ;;
+            -t|--top)  top ;;
+            -c|--cpu)  cpu ;;
+            -m|--mem)  mem ;;
+            -d|--disk) disk ;;
+            -g|--gpu)  gpu ;;
+            -n|--net)  shift; net "${1:-}" ;;
+            -s|--sock) sock ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -l -t -c -m -d -g -n [iface] -s"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)      tui ;;
+    cli|-c)      cli "$@" ;;
+    all|-a)      all ;;
+    info|-i)     info ;;
+    live)        live ;;
+    _dashboard)  _dashboard ;;
+    top)         top ;;
+    net)         net "${2:-}" ;;
+    *)           _do "$1" || echo "Uzycie: fezmon [live|top|cpu|mem|disk|gpu|net|sock|tui|cli|-a|-i]" ;;
+esac

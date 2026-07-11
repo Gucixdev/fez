@@ -26,11 +26,12 @@ feztool -i       # print command reference
 | `fezbt` | bluetooth |
 | `fezbuild` | C build tool — nob.c-inspired, incremental, no Makefile needed |
 | `fezcheck` | lint/health-check for any project — syntax, shellcheck, deps by detected language, perms, install state |
-| `fezcleaner` | system cleanup — RAM, logs, cache, packages, trash |
+| `fezcleaner` | system cleanup — RAM, logs, cache, packages |
 | `fezdeploy` | deploy — git/github/gitlab/rsync/ftp/scp |
-| `fezgh2fp` | GitHub repo → Flatpak build |
+| `fezgh2fp` | GitHub repo → Flatpak build, with fzf-powered GitHub search |
 | `fezlog` | log viewer/tailer — journalctl units, system, or files, colorized, fzf source picker |
 | `fezmain` | systemd service dashboard — vsv-style fzf TUI (start/stop/restart/logs) |
+| `fezmon` | resource monitor — CPU/RAM/GPU/disk/net/sockets, live view, fzf process picker (kill) |
 | `fezman` | fzf TUI for man pages, with live preview and apropos search |
 | `fezremote` | ssh tunneling / remote access |
 | `fezscenario` | record and replay command scenarios |
