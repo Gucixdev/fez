@@ -8,7 +8,7 @@ TOOLBOX_DIR="$HOME/.toolbox"
 
 _scripts() {
     mkdir -p "$TOOLBOX_DIR"
-    find "$TOOLBOX_DIR" -maxdepth 1 -type f -not -name '.*' 2>/dev/null | sort
+    find -L "$TOOLBOX_DIR" -maxdepth 1 -type f -not -name '.*' 2>/dev/null | sort
 }
 
 run() {
@@ -44,13 +44,40 @@ list() {
 }
 
 add() {
-    local src="${1:-}"
-    [[ -z "$src" ]] && { echo -n "Plik do dodania: "; read -r src; }
-    [[ -z "$src" || ! -f "$src" ]] && { _err "Brak pliku: $src"; return 1; }
+    if [[ $# -eq 0 ]]; then
+        local src; echo -n "Plik do dodania: "; read -r src
+        set -- "$src"
+    fi
     mkdir -p "$TOOLBOX_DIR"
-    cp -- "$src" "$TOOLBOX_DIR/$(basename "$src")"
-    chmod +x "$TOOLBOX_DIR/$(basename "$src")"
-    _ok "Dodano: $(basename "$src")"
+    local src dest
+    for src in "$@"; do
+        if [[ -z "$src" || ! -f "$src" ]]; then
+            _err "Brak pliku: $src"
+            continue
+        fi
+        dest="$TOOLBOX_DIR/$(basename -- "$src")"
+        [[ -e "$dest" || -L "$dest" ]] && rm -f -- "$dest"
+        cp -- "$src" "$dest"
+        chmod +x "$dest"
+        _ok "Dodano: $(basename -- "$src")"
+    done
+}
+
+link() {
+    local dir="${1:-}"
+    if [[ -z "$dir" ]]; then
+        echo -n "Folder ze skryptami: "; read -r dir
+    fi
+    [[ -z "$dir" || ! -d "$dir" ]] && { _err "Brak folderu: $dir"; return 1; }
+    dir=$(realpath -- "$dir")
+    mkdir -p "$TOOLBOX_DIR"
+    local f n=0
+    for f in "$dir"/*; do
+        [[ -f "$f" && -x "$f" ]] || continue
+        ln -sf -- "$f" "$TOOLBOX_DIR/$(basename -- "$f")"
+        ((n++))
+    done
+    _ok "Zlinkowano: $n skryptow z $dir"
 }
 
 status() {
@@ -61,10 +88,11 @@ status() {
 
 info() {
     status; echo
-    echo "feztoolbox            # fzf: wybierz i odpal skrypt z ~/.toolbox"
-    echo "feztoolbox list       # lista skryptow"
-    echo "feztoolbox add <plik> # skopiuj plik do ~/.toolbox (+x automatycznie)"
-    echo "feztoolbox -c [flagi] # -a <plik> -l"
+    echo "feztoolbox                 # fzf: wybierz i odpal skrypt z ~/.toolbox"
+    echo "feztoolbox list            # lista skryptow"
+    echo "feztoolbox add <plik...>   # skopiuj plik(i) do ~/.toolbox (+x automatycznie)"
+    echo "feztoolbox link <folder>   # zlinkuj wszystkie skrypty z folderu (np. cale repo fez)"
+    echo "feztoolbox -c [flagi]      # -a <plik...> -L <folder> -l"
 }
 
 all() { run; }
@@ -77,9 +105,10 @@ cli() {
     shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -a|--add)  shift; add "$1" ;;
+            -a|--add)  shift; add "$@"; break ;;
+            -L|--link) shift; link "$1" ;;
             -l|--list) list ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -a <plik> -l"; return 1 ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -a <plik...> -L <folder> -l"; return 1 ;;
         esac
         shift
     done
@@ -91,6 +120,7 @@ case "${1:-tui}" in
     all|-a)  all ;;
     info|-i) info ;;
     list)    list ;;
-    add)     add "${2:-}" ;;
-    *)       _do "$1" || echo "Uzycie: feztoolbox [list|add|tui|cli|-a|-i]" ;;
+    add)     shift; add "$@" ;;
+    link)    link "${2:-}" ;;
+    *)       _do "$1" || echo "Uzycie: feztoolbox [list|add|link|tui|cli|-a|-i]" ;;
 esac
