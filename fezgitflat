@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
+# fezgitflat — GitHub repo -> Flatpak: fzf szukaj, klonuje, wykrywa typ projektu i generuje manifest/build
+# ─────────────── CONFIG ───────────────
+FP_BUILD_DIR="$HOME/.local/share/fezgitflat/builds"
+FP_REPO_DIR="$HOME/.local/share/fezgitflat/repos"
+RUNTIME_VER="23.08"
+# ──────────────────────────────────────
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+mkdir -p "$FP_BUILD_DIR" "$FP_REPO_DIR"
+
+_check_deps() {
+    local missing=()
+    command -v flatpak-builder &>/dev/null || missing+=(flatpak-builder)
+    command -v git             &>/dev/null || missing+=(git)
+    [[ ${#missing[@]} -gt 0 ]] && echo "Brakuje: ${missing[*]}  →  sudo pacman -S ${missing[*]}" && return 1
+}
+
+_app_id_from_url() {
+    local url="$1"
+    local user; user=$(echo "$url" | sed 's|.*github.com/||' | cut -d'/' -f1)
+    local repo; repo=$(echo "$url" | sed 's|.*github.com/||' | cut -d'/' -f2 | sed 's/\.git$//')
+    echo "io.github.${user}.${repo}"
+}
+
+_detect_lang() {
+    local dir="$1"
+    [[ -f "$dir/Cargo.toml" ]]                                    && echo rust   && return
+    [[ -f "$dir/CMakeLists.txt" ]]                                 && echo cmake  && return
+    [[ -f "$dir/Makefile" || -f "$dir/makefile" ]]                 && echo make   && return
+    [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ]]           && echo python && return
+    [[ -f "$dir/go.mod" ]]                                         && echo go     && return
+    echo binary
+}
+
+# generuje manifest dopasowany do wykrytego typu projektu; drukuje wykryty typ na stdout
+_generate_manifest() {
+    local repo_dir="$1" repo_name="$2" app_id="$3" manifest="$4"
+    local lang; lang=$(_detect_lang "$repo_dir")
+    mkdir -p "$(dirname "$manifest")"
+
+    case "$lang" in
+        rust)
+            cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+command: $repo_name
+modules:
+  - name: $repo_name
+    buildsystem: simple
+    build-commands:
+      - cargo build --release
+      - install -Dm755 target/release/$repo_name /app/bin/$repo_name
+    sources:
+      - type: dir
+        path: ..
+EOF
+            ;;
+        cmake)
+            cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+command: $repo_name
+modules:
+  - name: $repo_name
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_INSTALL_PREFIX=/app
+      - -DCMAKE_BUILD_TYPE=Release
+    sources:
+      - type: dir
+        path: ..
+EOF
+            ;;
+        make)
+            cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+command: $repo_name
+modules:
+  - name: $repo_name
+    buildsystem: simple
+    build-commands:
+      - make
+      - install -Dm755 $repo_name /app/bin/$repo_name
+    sources:
+      - type: dir
+        path: ..
+EOF
+            ;;
+        python)
+            cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+command: $repo_name
+modules:
+  - name: $repo_name
+    buildsystem: simple
+    build-commands:
+      - pip3 install --prefix=/app --no-build-isolation .
+    sources:
+      - type: dir
+        path: ..
+EOF
+            ;;
+        go)
+            cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.golang
+build-options:
+  append-path: /usr/lib/sdk/golang/bin
+  env:
+    GOBIN: /app/bin
+command: $repo_name
+modules:
+  - name: $repo_name
+    buildsystem: simple
+    build-commands:
+      - go build -o /app/bin/$repo_name .
+    sources:
+      - type: dir
+        path: ..
+EOF
+            ;;
+        *)
+            cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+command: $repo_name
+modules:
+  - name: $repo_name
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 $repo_name /app/bin/$repo_name
+    sources:
+      - type: dir
+        path: ..
+EOF
+            ;;
+    esac
+    echo "$lang"
+}
+
+_list_local() {
+    local -n _out="$1"; _out=()
+    for d in "$FP_REPO_DIR"/*/; do [[ -d "$d" ]] && _out+=("$d"); done
+}
+
+search() {
+    command -v gh &>/dev/null || { _err "Brakuje: gh  →  sudo pacman -S github-cli"; return 1; }
+    command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
+    local query="${1:-}"
+    [[ -z "$query" ]] && { echo -n "Szukaj na GitHub: " >&2; read -r query; }
+    [[ -z "$query" ]] && return 1
+    local pick; pick=$(gh search repos "$query" --limit 30 2>/dev/null \
+        | fzf --delimiter=$'\t' --with-nth=1,2 --prompt="github ($query)> " \
+              --preview='gh repo view {1} 2>/dev/null' --preview-window=down:70%)
+    [[ -z "$pick" ]] && return 1
+    echo "https://github.com/$(awk -F'\t' '{print $1}' <<< "$pick")"
+}
+
+build() {
+    _check_deps || return 1
+    local url="${1}"
+    if [[ -z "$url" ]]; then
+        echo -n "GitHub URL (Enter = szukaj po nazwie): "; read -r url
+        [[ -z "$url" ]] && { url=$(search); [[ -z "$url" ]] && { echo "Brak wyboru"; return 1; }; }
+    fi
+    [[ "$url" != *github.com* ]] && { echo "Podaj URL GitHub: https://github.com/user/repo"; return 1; }
+
+    local app_id; app_id=$(_app_id_from_url "$url")
+    local repo_name; repo_name=$(echo "$url" | sed 's|.*/||' | sed 's/\.git$//')
+    local repo_dir="$FP_REPO_DIR/$repo_name"
+    local build_dir="$FP_BUILD_DIR/$app_id"
+
+    echo "App ID:  $app_id"
+    echo "Klonuje: $url"
+    git clone --depth=1 "$url" "$repo_dir" 2>/dev/null || {
+        echo "Aktualizuje istniejace repo..."
+        git -C "$repo_dir" pull
+    }
+
+    local manifest="$repo_dir/flatpak/$app_id.yaml"
+    [[ ! -f "$manifest" ]] && manifest=$(find "$repo_dir" -name "*.yaml" -path "*/flatpak/*" 2>/dev/null | head -1)
+    [[ ! -f "$manifest" ]] && manifest=$(find "$repo_dir" -name "*.json" -path "*/flatpak/*" 2>/dev/null | head -1)
+
+    if [[ -z "$manifest" ]]; then
+        manifest="$repo_dir/flatpak/$app_id.yaml"
+        local lang; lang=$(_generate_manifest "$repo_dir" "$repo_name" "$app_id" "$manifest")
+        _ok "Brak manifestu w repo — wygenerowano dla wykrytego typu: $lang"
+        echo "Manifest: $manifest"
+        [[ "$lang" == binary ]] && _dim "Nie wykryto znanego build systemu — sprawdz/popraw manifest przed uruchomieniem ponownie"
+    fi
+
+    echo "Manifest: $manifest"
+    flatpak-builder --force-clean "$build_dir" "$manifest" || { _err "Build nieudany — sprawdz $manifest"; return 1; }
+    flatpak-builder --user --install --force-clean "$build_dir" "$manifest"
+    _ok "Zainstalowano: $app_id"
+    echo "$app_id|$url|$manifest" >> "$FP_REPO_DIR/.index"
+}
+
+update() {
+    local app="${1}"
+    if [[ -z "$app" ]]; then
+        [[ ! -f "$FP_REPO_DIR/.index" ]] && { echo "Brak zbudowanych flatpakow"; return 1; }
+        local pick; pick=$(awk -F'|' '{printf "%-40s  %s\n", $1, $2}' "$FP_REPO_DIR/.index" | _fzf_pick "aktualizuj> ")
+        app=$(awk '{print $1}' <<< "$pick")
+    fi
+
+    local url; url=$(grep "^$app|" "$FP_REPO_DIR/.index" 2>/dev/null | cut -d'|' -f2)
+    [[ -z "$url" ]] && { echo "Brak wpisu dla: $app"; return 1; }
+    build "$url"
+}
+
+list() {
+    [[ ! -f "$FP_REPO_DIR/.index" ]] && echo "Brak zbudowanych flatpakow" && return
+    echo "Zbudowane flatpaki:"
+    while IFS='|' read -r app url manifest; do
+        printf "  %-40s  %s\n" "$app" "$url"
+    done < "$FP_REPO_DIR/.index"
+}
+
+status() {
+    command -v flatpak-builder &>/dev/null && echo "flatpak-builder: OK" || _err "flatpak-builder: BRAK"
+    command -v gh &>/dev/null && echo "gh:               OK" || _dim "gh:               brak (search niedostepny)"
+    echo "Builds: $FP_BUILD_DIR"
+    echo "Repos:  $FP_REPO_DIR"
+    echo "Zbudowane: $(wc -l "$FP_REPO_DIR/.index" 2>/dev/null || echo 0)"
+}
+
+info() {
+    status; echo
+    echo "fezgitflat build [url]    # zbuduj + zainstaluj flatpak z GitHub (Enter=szukaj)"
+    echo "fezgitflat search [fraza] # fzf: szukaj repo na GitHub (gh search repos)"
+    echo "fezgitflat update [app]   # zaktualizuj istniejacy flatpak"
+    echo "fezgitflat list           # lista zbudowanych flatpakow"
+    echo "fezgitflat status         # status"
+    echo "fezgitflat -c [flagi]     # -b <url> -g <fraza> -u <app> -l"
+    echo
+    echo "Bez wlasnego manifestu w repo wykrywa typ projektu i generuje jeden:"
+    echo "  rust (Cargo.toml), cmake (CMakeLists.txt), make (Makefile),"
+    echo "  python (pyproject.toml/setup.py), go (go.mod) — inaczej minimalny"
+    echo "  manifest zakladajacy gotowy plik binarny o nazwie repo."
+}
+
+all() { list; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(build update list)
+    local descs=(
+        "zbuduj + zainstaluj flatpak z GitHub URL (Enter=szukaj po nazwie)"
+        "zaktualizuj istniejacy flatpak"
+        "lista zbudowanych flatpakow"
+    )
+    _fzf_menu "fezgitflat | $(wc -l "$FP_REPO_DIR/.index" 2>/dev/null || echo 0) flatpakow" cmds descs
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -b|--build)  shift; build "$1" ;;
+            -g|--search) shift; build "$(search "$1")" ;;
+            -u|--update) shift; update "$1" ;;
+            -l|--list)   list ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -b <url> -g <fraza> -u <app> -l"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)  tui ;;
+    cli|-c)  cli "$@" ;;
+    all|-a)  all ;;
+    info|-i) info ;;
+    build)   build "${@:2}" ;;
+    search)  search "${@:2}" ;;
+    update)  update "${@:2}" ;;
+    *)       _do "$1" || echo "Uzycie: fezgitflat [build|update|list|search|status|tui|cli|-a|-i]" ;;
+esac

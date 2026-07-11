@@ -28,7 +28,7 @@ feztool -i       # print command reference
 | `fezcheck` | lint/health-check for any project — syntax, shellcheck, deps by detected language, perms, install state |
 | `fezcleaner` | system cleanup — RAM, logs, cache, packages |
 | `fezdeploy` | deploy — git/github/gitlab/rsync/ftp/scp |
-| `fezgh2fp` | GitHub repo → Flatpak build, with fzf-powered GitHub search |
+| `fezgitflat` | GitHub repo → Flatpak — fzf search, then auto-detects project type (rust/cmake/make/python/go) to generate the build manifest |
 | `fezlog` | log viewer/tailer — journalctl units, system, or files, colorized, fzf source picker |
 | `fezmain` | systemd service dashboard — vsv-style fzf TUI (start/stop/restart/logs) |
 | `fezmon` | resource monitor — CPU/RAM/GPU/disk/net/sockets, live view, fzf process picker (kill) |

@@ -83,8 +83,8 @@ deps() {
                 [jq]="fezscenario" [fzf]="wiele narzedzi (fzf TUI)" [tldr]="feztldr"
                 [curl]="feztldr" [inotifywait]="fezbuild" [cc]="fezbuild"
                 [systemctl]="fezmain" [journalctl]="fezmain,fezlog" [bluetoothctl]="fezbt"
-                [nmcli]="fezwifi" [iwctl]="fezwifi" [git]="fezdeploy,fezgh2fp" [gh]="fezdeploy,fezgh2fp"
-                [flatpak-builder]="fezgh2fp" [evemu-record]="fezscenario" [btrfs]="fezbackup"
+                [nmcli]="fezwifi" [iwctl]="fezwifi" [git]="fezdeploy,fezgitflat" [gh]="fezdeploy,fezgitflat"
+                [flatpak-builder]="fezgitflat" [evemu-record]="fezscenario" [btrfs]="fezbackup"
                 [rsync]="fezbackup,fezdeploy" [wl-copy]="feztldr,fezbackup" [xclip]="feztldr,fezbackup"
                 [strace]="feztrace" [ltrace]="feztrace" [shellcheck]="fezcheck"
             )
