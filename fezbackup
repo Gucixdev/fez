@@ -199,7 +199,7 @@ all() { snap all manual; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(list snap pre delete restore keep export_snap status info)
+    local cmds=(list snap pre delete restore keep export_snap)
     local descs=(
         "lista snapshotow"
         "nowy snapshot (root/home/all)"
@@ -208,8 +208,6 @@ tui() {
         "przywroc snapshot"
         "zachowaj ostatnie N (domyslnie 5)"
         "exportuj na zewn. dysk/serwer"
-        "status btrfs"
-        "info + komendy"
     )
     _fzf_menu "fezbackup | snapshots: $(ls "$SNAP_DIR" 2>/dev/null | wc -l)" cmds descs
 }

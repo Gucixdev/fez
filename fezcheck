@@ -102,14 +102,12 @@ all() { lint; echo; deps; echo; perms; echo; installed; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(lint deps perms installed status info)
+    local cmds=(lint deps perms installed)
     local descs=(
         "skladnia + shellcheck"
         "zewnetrzne zaleznosci"
         "uprawnienia +x"
         "czy zlinkowane w ~/.local/bin"
-        "status"
-        "info + komendy"
     )
     _fzf_menu "fezcheck | $(_tools | wc -l) narzedzi" cmds descs
 }

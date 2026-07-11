@@ -83,18 +83,7 @@ all() { browse; }
 
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
-tui() {
-    local cmds=(browse view follow search status info)
-    local descs=(
-        "fzf: wybierz zrodlo + podglad"
-        "ostatnie linie, w pagerze"
-        "live tail -f"
-        "szukaj w journal + plikach"
-        "status narzedzi"
-        "info + komendy"
-    )
-    _fzf_menu "fezlog" cmds descs
-}
+tui() { browse; }
 
 cli() {
     shift

@@ -88,7 +88,7 @@ all() { pick; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(pick full files net proc signals summary calls status info)
+    local cmds=(pick full files net proc signals summary calls)
     local descs=(
         "fzf: wybierz proces"
         "pelny strace"
@@ -98,8 +98,6 @@ tui() {
         "tylko sygnaly"
         "podsumowanie czasu/ilosci"
         "ltrace: wywolania bibliotek"
-        "status narzedzi"
-        "info + komendy"
     )
     _fzf_menu "feztrace" cmds descs
 }

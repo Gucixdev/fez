@@ -82,8 +82,8 @@ all() { run; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(run coverage watch status info)
-    local descs=("uruchom testy" "raport pokrycia" "watch — testy przy zmianach" "status" "info + komendy")
+    local cmds=(run coverage watch)
+    local descs=("uruchom testy" "raport pokrycia" "watch — testy przy zmianach")
     _fzf_menu "feztest | jezyk: $(_detect) | $(pwd | xargs basename)" cmds descs
 }
 

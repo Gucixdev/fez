@@ -26,8 +26,8 @@ all() { cmd_a; cmd_b; cmd_c; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(cmd_a cmd_b cmd_c status info)
-    local descs=("opis a" "opis b" "opis c" "status" "info + komendy")
+    local cmds=(cmd_a cmd_b cmd_c)
+    local descs=("opis a" "opis b" "opis c")
     _fzf_menu "fezTOOL" cmds descs
 }
 

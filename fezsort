@@ -74,15 +74,13 @@ all() { echo "Wybierz plik i operacje z TUI"; tui; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(json yaml lines dedup sort_lines_dedup status info)
+    local cmds=(json yaml lines dedup sort_lines_dedup)
     local descs=(
         "sortuj klucze JSON"
         "sortuj klucze YAML"
         "sortuj linie alfabetycznie"
         "usun duplikaty linii"
         "sortuj linie + usun duplikaty"
-        "status narzedzi"
-        "info + komendy"
     )
     _fzf_menu "fezsort" cmds descs
 }

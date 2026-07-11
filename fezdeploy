@@ -88,14 +88,12 @@ all() { push; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(push tag release publish status info)
+    local cmds=(push tag release publish)
     local descs=(
         "push biezacego brancha"
         "stworz i wypchnij tag"
         "stworz release (gh/glab/tea)"
         "publikuj paczke (npm/PyPI/cargo/AUR)"
-        "status repozytorium"
-        "info + komendy"
     )
     _fzf_menu "fezdeploy | $(_detect_host) | $(git branch --show-current 2>/dev/null || echo '?')" cmds descs
 }

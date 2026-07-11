@@ -138,14 +138,12 @@ all() { status; echo; list; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(list restore purge empty status info)
+    local cmds=(list restore purge empty)
     local descs=(
         "zawartosc kosza"
         "przywroc plik"
         "trwale usun starsze niz N dni"
         "oproznij caly kosz"
-        "rozmiar / ilosc"
-        "info + komendy"
     )
     _fzf_menu "feztrash | $(status | awk -F': *' '/Elementy/{print $2}') w koszu" cmds descs
 }

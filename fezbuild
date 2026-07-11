@@ -107,14 +107,12 @@ all() { build; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(build run watch clean status info)
+    local cmds=(build run watch clean)
     local descs=(
         "buduj (inkrementalnie)"
         "buduj + odpal"
         "rebuild+run przy zmianie plikow"
         "wyczysc build/"
-        "status narzedzi"
-        "info + komendy"
     )
     _fzf_menu "fezbuild | CC=$CC" cmds descs
 }

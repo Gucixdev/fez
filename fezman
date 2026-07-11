@@ -56,12 +56,10 @@ all() { browse; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(browse search status info)
+    local cmds=(browse search)
     local descs=(
         "przegladaj wszystkie manpage'y (fzf+preview)"
         "szukaj po opisie (apropos)"
-        "status"
-        "info + komendy"
     )
     _fzf_menu "fezman" cmds descs
 }
