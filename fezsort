@@ -1,86 +1,122 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
-# fezsort — sort/normalize structured files (JSON keys, YAML, lines, dedup)
+# fezsort — sortuje/organizuje pliki w folderze (rozszerzenie/data/rozmiar/duplikaty)
 . "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
 
-_pick_file() {
-    local -n _f="$1"
+_pick_dir() {
+    local -n _d="$1"
     if [[ -n "${2:-}" ]]; then
-        _f="$2"
-    elif command -v fzf &>/dev/null; then
-        _f=$(find . -maxdepth 4 -type f -not -path '*/.git/*' 2>/dev/null | fzf --prompt="Plik: " --preview="head -50 {}" --preview-window=down:10)
+        _d="$2"
     else
-        echo -n "Plik: "; read -r _f
+        echo -n "Folder [.]: "; read -r _d; _d="${_d:-.}"
     fi
-    if [[ -z "$_f" || ! -f "$_f" ]]; then
-        _err "Brak pliku: $_f"
-        return 1
-    fi
+    [[ -d "$_d" ]] || { _err "Brak folderu: $_d"; return 1; }
 }
 
-json() {
-    local f; _pick_file f "${1:-}" || return 1
-    command -v jq &>/dev/null || { _err "Brakuje: jq  →  sudo pacman -S jq"; return 1; }
-    local tmp; tmp=$(mktemp)
-    jq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && _ok "JSON posortowany: $f"
+by_ext() {
+    local dir; _pick_dir dir "${1:-}" || return 1
+    local f name ext dest moved=0
+    for f in "$dir"/*; do
+        [[ -f "$f" ]] || continue
+        name=$(basename "$f")
+        if [[ "$name" == *.* ]]; then
+            ext="${name##*.}"
+        else
+            ext="bez_rozszerzenia"
+        fi
+        dest="$dir/${ext,,}"
+        mkdir -p "$dest"
+        mv -n -- "$f" "$dest/" && ((moved++))
+    done
+    _ok "Przeniesiono: $moved plik(ow) wg rozszerzenia"
 }
 
-yaml() {
-    local f; _pick_file f "${1:-}" || return 1
-    command -v yq &>/dev/null || { _err "Brakuje: yq  →  pip install yq  lub  paru -S yq"; return 1; }
-    local tmp; tmp=$(mktemp)
-    yq --sort-keys . "$f" > "$tmp" && mv "$tmp" "$f" && _ok "YAML posortowany: $f"
+by_date() {
+    local dir; _pick_dir dir "${1:-}" || return 1
+    local f sub moved=0
+    for f in "$dir"/*; do
+        [[ -f "$f" ]] || continue
+        sub=$(date -r "$f" +%Y-%m 2>/dev/null) || continue
+        mkdir -p "$dir/$sub"
+        mv -n -- "$f" "$dir/$sub/" && ((moved++))
+    done
+    _ok "Przeniesiono: $moved plik(ow) wg daty modyfikacji (RRRR-MM)"
 }
 
-lines() {
-    local f; _pick_file f "${1:-}" || return 1
-    local tmp; tmp=$(mktemp)
-    sort "$f" > "$tmp" && mv "$tmp" "$f" && _ok "Linie posortowane: $f"
+by_size() {
+    local dir; _pick_dir dir "${1:-}" || return 1
+    local f size dest moved=0
+    for f in "$dir"/*; do
+        [[ -f "$f" ]] || continue
+        size=$(stat -c%s "$f" 2>/dev/null) || continue
+        if   (( size < 1048576 ));   then dest="male"     # <1MB
+        elif (( size < 104857600 )); then dest="srednie"  # <100MB
+        else                              dest="duze"
+        fi
+        mkdir -p "$dir/$dest"
+        mv -n -- "$f" "$dir/$dest/" && ((moved++))
+    done
+    _ok "Przeniesiono: $moved plik(ow) wg rozmiaru (male<1MB, srednie<100MB, duze>=100MB)"
 }
 
 dedup() {
-    local f; _pick_file f "${1:-}" || return 1
-    local before; before=$(wc -l < "$f")
+    local dir; _pick_dir dir "${1:-}" || return 1
     local tmp; tmp=$(mktemp)
-    awk '!seen[$0]++' "$f" > "$tmp" && mv "$tmp" "$f"
-    local after; after=$(wc -l < "$f")
-    _ok "Dedup: $f  ($before → $after linii, usunieto $((before-after)))"
-}
+    find "$dir" -maxdepth 1 -type f -exec sha256sum {} + > "$tmp" 2>/dev/null
 
-sort_lines_dedup() {
-    local f; _pick_file f "${1:-}" || return 1
-    local tmp; tmp=$(mktemp)
-    sort -u "$f" > "$tmp" && mv "$tmp" "$f" && _ok "Posortowano + dedup: $f"
+    local hashes; hashes=$(awk '{print $1}' "$tmp" | sort | uniq -d)
+    if [[ -z "$hashes" ]]; then
+        _ok "Brak duplikatow w: $dir"
+        rm -f "$tmp"
+        return 0
+    fi
+
+    local to_delete=() h files first rest
+    while IFS= read -r h; do
+        mapfile -t files < <(awk -v hh="$h" '$1==hh{sub($1 FS,""); print}' "$tmp")
+        first="${files[0]}"
+        rest=("${files[@]:1}")
+        if command -v fzf &>/dev/null; then
+            local picks; mapfile -t picks < <(printf '%s\n' "${rest[@]}" \
+                | fzf -m --bind space:toggle+down --prompt="duplikat (oryginal: $(basename "$first"))> ")
+            to_delete+=("${picks[@]}")
+        else
+            to_delete+=("${rest[@]}")
+        fi
+    done <<< "$hashes"
+    rm -f "$tmp"
+
+    [[ ${#to_delete[@]} -eq 0 ]] && { echo "Nic nie zaznaczono do usuniecia"; return 0; }
+    echo "Do usuniecia:"; printf '  - %s\n' "${to_delete[@]}"
+    echo -n "Potwierdzasz? [t/N] "; read -r yn
+    [[ "$yn" == [tT] ]] || { echo "Anulowano"; return 0; }
+    rm -f -- "${to_delete[@]}" && _ok "Usunieto: ${#to_delete[@]} duplikat(ow)"
 }
 
 status() {
-    command -v jq &>/dev/null && echo "jq:  OK" || _err "jq:  BRAK"
-    command -v yq &>/dev/null && echo "yq:  OK" || _err "yq:  BRAK"
-    command -v fzf &>/dev/null && echo "fzf: OK" || _dim "fzf: brak (wybor pliku recznie)"
+    command -v fzf &>/dev/null && echo "fzf: OK" || _dim "fzf: brak (dedup: usuwa wszystkie duplikaty bez wyboru)"
 }
 
 info() {
     status; echo
-    echo "fezsort json [plik]         # sortuj klucze JSON"
-    echo "fezsort yaml [plik]         # sortuj klucze YAML"
-    echo "fezsort lines [plik]        # sortuj linie"
-    echo "fezsort dedup [plik]        # usuN duplikaty linii"
-    echo "fezsort sort_lines_dedup    # sortuj + dedup"
-    echo "fezsort -c [flagi]          # -j -y -l -d -u"
+    echo "fezsort by_ext [folder]   # przenosi pliki do podfolderow wg rozszerzenia"
+    echo "fezsort by_date [folder]  # przenosi pliki do podfolderow RRRR-MM wg daty"
+    echo "fezsort by_size [folder]  # przenosi pliki do male/srednie/duze"
+    echo "fezsort dedup [folder]    # znajdz duplikaty (sha256) i usun wybrane"
+    echo "fezsort -c [flagi]        # -e -d -s -u [folder]"
 }
 
-all() { echo "Wybierz plik i operacje z TUI"; tui; }
+all() { tui; }
 
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(json yaml lines dedup sort_lines_dedup)
+    local cmds=(by_ext by_date by_size dedup)
     local descs=(
-        "sortuj klucze JSON"
-        "sortuj klucze YAML"
-        "sortuj linie alfabetycznie"
-        "usun duplikaty linii"
-        "sortuj linie + usun duplikaty"
+        "wg rozszerzenia"
+        "wg daty modyfikacji (RRRR-MM)"
+        "wg rozmiaru (male/srednie/duze)"
+        "znajdz i usun duplikaty (sha256)"
     )
     _fzf_menu "fezsort" cmds descs
 }
@@ -89,26 +125,24 @@ cli() {
     shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -j|--json)  shift; json "$1" ;;
-            -y|--yaml)  shift; yaml "$1" ;;
-            -l|--lines) shift; lines "$1" ;;
-            -d|--dedup) shift; dedup "$1" ;;
-            -u|--uniq)  shift; sort_lines_dedup "$1" ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -j <plik> -y <plik> -l <plik> -d <plik> -u <plik>"; return 1 ;;
+            -e|--ext)  shift; by_ext "$1" ;;
+            -d|--date) shift; by_date "$1" ;;
+            -s|--size) shift; by_size "$1" ;;
+            -u|--dup)  shift; dedup "$1" ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -e -d -s -u [folder]"; return 1 ;;
         esac
         shift
     done
 }
 
 case "${1:-tui}" in
-    tui|-t)           tui ;;
-    cli|-c)           cli "$@" ;;
-    all|-a)           all ;;
-    info|-i)          info ;;
-    json)             json "${@:2}" ;;
-    yaml)             yaml "${@:2}" ;;
-    lines)            lines "${@:2}" ;;
-    dedup)            dedup "${@:2}" ;;
-    sort_lines_dedup) sort_lines_dedup "${@:2}" ;;
-    *)                _do "$1" || echo "Uzycie: fezsort [json|yaml|lines|dedup|sort_lines_dedup|tui|cli|-a|-i]" ;;
+    tui|-t)  tui ;;
+    cli|-c)  cli "$@" ;;
+    all|-a)  all ;;
+    info|-i) info ;;
+    by_ext)  by_ext "${2:-}" ;;
+    by_date) by_date "${2:-}" ;;
+    by_size) by_size "${2:-}" ;;
+    dedup)   dedup "${2:-}" ;;
+    *)       _do "$1" || echo "Uzycie: fezsort [by_ext|by_date|by_size|dedup|tui|cli|-a|-i] [folder]" ;;
 esac

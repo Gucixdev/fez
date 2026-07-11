@@ -35,7 +35,7 @@ feztool -i       # print command reference
 | `fezman` | fzf TUI for man pages, with live preview and apropos search |
 | `fezremote` | ssh tunneling / remote access |
 | `fezscenario` | record and replay command scenarios |
-| `fezsort` | sort/dedup JSON, YAML, plain text files |
+| `fezsort` | organize files in a folder — by extension, date, size, or find/remove duplicates |
 | `feztldr` | fzf TUI generated from tldr pages |
 | `feztrace` | strace/ltrace wrapper — attach or launch, filter by syscall category, fzf process picker |
 | `feztrash` | safe `rm` — moves to `~/.trash`, dedups by suffix, restore/purge/empty |
