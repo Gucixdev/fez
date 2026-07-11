@@ -2,12 +2,12 @@
 # shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # fezgitflat — GitHub repo -> Flatpak: fzf szukaj, klonuje, wykrywa typ projektu i generuje manifest/build
 # ─────────────── CONFIG ───────────────
-FP_BUILD_DIR="$HOME/.local/share/fezgitflat/builds"
-FP_REPO_DIR="$HOME/.local/share/fezgitflat/repos"
-RUNTIME_VER_FALLBACK="24.08"   # gdy nic zainstalowane lokalnie
+GITFLAT_DIR="$HOME/.gitflat"        # repo klonowany jako <nazwa>, build w <nazwa>-build
+GITFLAT_INDEX="$GITFLAT_DIR/.index"
+RUNTIME_VER_FALLBACK="24.08"        # gdy nic zainstalowane lokalnie
 # ──────────────────────────────────────
 . "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/_fez.sh"
-mkdir -p "$FP_BUILD_DIR" "$FP_REPO_DIR"
+mkdir -p "$GITFLAT_DIR"
 
 # najnowsza wspolna wersja Sdk+Platform juz zainstalowana lokalnie — zeby nie
 # generowac manifestu z runtime, ktorego nie ma i trzeba by go dociagac/moze
@@ -308,11 +308,6 @@ _ensure_sdk_extension() {
     flatpak install --user -y --noninteractive flathub "$ext//$ver"
 }
 
-_list_local() {
-    local -n _out="$1"; _out=()
-    for d in "$FP_REPO_DIR"/*/; do [[ -d "$d" ]] && _out+=("$d"); done
-}
-
 search() {
     command -v gh &>/dev/null || { _err "Brakuje: gh  →  sudo pacman -S github-cli"; return 1; }
     command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
@@ -337,8 +332,8 @@ build() {
 
     local app_id; app_id=$(_app_id_from_url "$url")
     local repo_name; repo_name=$(echo "$url" | sed 's|.*/||' | sed 's/\.git$//')
-    local repo_dir="$FP_REPO_DIR/$repo_name"
-    local build_dir="$FP_BUILD_DIR/$app_id"
+    local repo_dir="$GITFLAT_DIR/$repo_name"
+    local build_dir="$GITFLAT_DIR/$repo_name-build"
 
     echo "App ID:  $app_id"
     echo "Klonuje: $url"
@@ -367,46 +362,79 @@ build() {
     flatpak-builder --force-clean "$build_dir" "$manifest" || { _err "Build nieudany — sprawdz $manifest"; return 1; }
     flatpak-builder --user --install --force-clean "$build_dir" "$manifest"
     _ok "Zainstalowano: $app_id"
-    echo "$app_id|$url|$manifest" >> "$FP_REPO_DIR/.index"
+    grep -q "^$app_id|" "$GITFLAT_INDEX" 2>/dev/null || echo "$app_id|$url|$manifest" >> "$GITFLAT_INDEX"
+}
+
+# jak update, ale BEZ re-clone/pull — tylko ponowny flatpak-builder na
+# istniejacym checkoucie i manifescie (przydatne po recznej edycji manifestu)
+refresh() {
+    local app="${1}"
+    if [[ -z "$app" ]]; then
+        [[ ! -f "$GITFLAT_INDEX" ]] && { echo "Brak zbudowanych flatpakow"; return 1; }
+        local pick; pick=$(awk -F'|' '{printf "%-40s  %s\n", $1, $2}' "$GITFLAT_INDEX" | _fzf_pick "odswiez> ")
+        app=$(awk '{print $1}' <<< "$pick")
+    fi
+    [[ -z "$app" ]] && { echo "Brak wyboru"; return 1; }
+
+    local line url manifest
+    line=$(grep "^$app|" "$GITFLAT_INDEX" 2>/dev/null)
+    [[ -z "$line" ]] && { echo "Brak wpisu dla: $app"; return 1; }
+    url=$(cut -d'|' -f2 <<< "$line")
+    manifest=$(cut -d'|' -f3 <<< "$line")
+    [[ -f "$manifest" ]] || { _err "Manifest zniknal: $manifest"; return 1; }
+
+    local repo_name; repo_name=$(echo "$url" | sed 's|.*/||' | sed 's/\.git$//')
+    local repo_dir="$GITFLAT_DIR/$repo_name"
+    local build_dir="$GITFLAT_DIR/$repo_name-build"
+    local lang; lang=$(_detect_lang "$repo_dir")
+    _ensure_sdk_extension "$lang" "$(_runtime_ver)" || return 1
+
+    echo "Przebudowuje (bez re-clone): $manifest"
+    flatpak-builder --force-clean "$build_dir" "$manifest" || { _err "Build nieudany — sprawdz $manifest"; return 1; }
+    flatpak-builder --user --install --force-clean "$build_dir" "$manifest"
+    _ok "Przebudowano/zainstalowano: $app"
 }
 
 update() {
     local app="${1}"
     if [[ -z "$app" ]]; then
-        [[ ! -f "$FP_REPO_DIR/.index" ]] && { echo "Brak zbudowanych flatpakow"; return 1; }
-        local pick; pick=$(awk -F'|' '{printf "%-40s  %s\n", $1, $2}' "$FP_REPO_DIR/.index" | _fzf_pick "aktualizuj> ")
+        [[ ! -f "$GITFLAT_INDEX" ]] && { echo "Brak zbudowanych flatpakow"; return 1; }
+        local pick; pick=$(awk -F'|' '{printf "%-40s  %s\n", $1, $2}' "$GITFLAT_INDEX" | _fzf_pick "aktualizuj> ")
         app=$(awk '{print $1}' <<< "$pick")
     fi
 
-    local url; url=$(grep "^$app|" "$FP_REPO_DIR/.index" 2>/dev/null | cut -d'|' -f2)
+    local url; url=$(grep "^$app|" "$GITFLAT_INDEX" 2>/dev/null | cut -d'|' -f2)
     [[ -z "$url" ]] && { echo "Brak wpisu dla: $app"; return 1; }
     build "$url"
 }
 
 list() {
-    [[ ! -f "$FP_REPO_DIR/.index" ]] && echo "Brak zbudowanych flatpakow" && return
+    [[ ! -f "$GITFLAT_INDEX" ]] && echo "Brak zbudowanych flatpakow" && return
     echo "Zbudowane flatpaki:"
     while IFS='|' read -r app url manifest; do
         printf "  %-40s  %s\n" "$app" "$url"
-    done < "$FP_REPO_DIR/.index"
+    done < "$GITFLAT_INDEX"
 }
 
 status() {
     command -v flatpak-builder &>/dev/null && echo "flatpak-builder: OK" || _err "flatpak-builder: BRAK"
     command -v gh &>/dev/null && echo "gh:               OK" || _dim "gh:               brak (search niedostepny)"
-    echo "Builds: $FP_BUILD_DIR"
-    echo "Repos:  $FP_REPO_DIR"
-    echo "Zbudowane: $(wc -l "$FP_REPO_DIR/.index" 2>/dev/null || echo 0)"
+    echo "Folder:    $GITFLAT_DIR"
+    echo "Zbudowane: $(wc -l "$GITFLAT_INDEX" 2>/dev/null || echo 0)"
 }
 
 info() {
     status; echo
     echo "fezgitflat build [url]    # zbuduj + zainstaluj flatpak z GitHub (Enter=szukaj)"
     echo "fezgitflat search [fraza] # fzf: szukaj repo na GitHub (gh search repos)"
-    echo "fezgitflat update [app]   # zaktualizuj istniejacy flatpak"
+    echo "fezgitflat refresh [app]  # przebuduj bez re-clone (np. po recznej edycji manifestu)"
+    echo "fezgitflat update [app]   # git pull + przebuduj istniejacy flatpak"
     echo "fezgitflat list           # lista zbudowanych flatpakow"
     echo "fezgitflat status         # status"
-    echo "fezgitflat -c [flagi]     # -b <url> -g <fraza> -u <app> -l"
+    echo "fezgitflat -c [flagi]     # -b <url> -g <fraza> -r <app> -u <app> -l"
+    echo
+    echo "Kazde repo ląduje w ~/.gitflat/<nazwa> (klon) + ~/.gitflat/<nazwa>-build"
+    echo "(katalog roboczy flatpak-builder)."
     echo
     echo "Bez wlasnego manifestu w repo wykrywa typ projektu i generuje jeden:"
     echo "  rust (Cargo.toml), cmake (CMakeLists.txt), make (Makefile),"
@@ -421,24 +449,26 @@ all() { list; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(build update list)
+    local cmds=(build update refresh list)
     local descs=(
         "zbuduj + zainstaluj flatpak z GitHub URL (Enter=szukaj po nazwie)"
-        "zaktualizuj istniejacy flatpak"
+        "git pull + przebuduj istniejacy flatpak"
+        "przebuduj bez re-clone (po recznej edycji manifestu)"
         "lista zbudowanych flatpakow"
     )
-    _fzf_menu "fezgitflat | $(wc -l "$FP_REPO_DIR/.index" 2>/dev/null || echo 0) flatpakow" cmds descs
+    _fzf_menu "fezgitflat | $(wc -l "$GITFLAT_INDEX" 2>/dev/null || echo 0) flatpakow" cmds descs
 }
 
 cli() {
     shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -b|--build)  shift; build "$1" ;;
-            -g|--search) shift; build "$(search "$1")" ;;
-            -u|--update) shift; update "$1" ;;
-            -l|--list)   list ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -b <url> -g <fraza> -u <app> -l"; return 1 ;;
+            -b|--build)   shift; build "$1" ;;
+            -g|--search)  shift; build "$(search "$1")" ;;
+            -r|--refresh) shift; refresh "$1" ;;
+            -u|--update)  shift; update "$1" ;;
+            -l|--list)    list ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -b <url> -g <fraza> -r <app> -u <app> -l"; return 1 ;;
         esac
         shift
     done
@@ -451,6 +481,7 @@ case "${1:-tui}" in
     info|-i) info ;;
     build)   build "${@:2}" ;;
     search)  search "${@:2}" ;;
+    refresh) refresh "${@:2}" ;;
     update)  update "${@:2}" ;;
-    *)       _do "$1" || echo "Uzycie: fezgitflat [build|update|list|search|status|tui|cli|-a|-i]" ;;
+    *)       _do "$1" || echo "Uzycie: fezgitflat [build|update|refresh|list|search|status|tui|cli|-a|-i]" ;;
 esac
