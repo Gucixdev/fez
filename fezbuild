@@ -82,18 +82,13 @@ clean() {
         _dim "Brak $BUILD_DIR/"
         return 0
     fi
-    if command -v feztrash &>/dev/null; then
-        feztrash put "$BUILD_DIR"
-    else
-        rm -rf "$BUILD_DIR" && _ok "Usunieto: $BUILD_DIR"
-    fi
+    rm -rf "$BUILD_DIR" && _ok "Usunieto: $BUILD_DIR"
 }
 
 status() {
     printf "CC:      %s\n" "$CC"
     printf "CFLAGS:  %s\n" "$CFLAGS"
     command -v inotifywait &>/dev/null && echo "watch:   OK" || _dim "watch:   brak inotifywait"
-    command -v feztrash &>/dev/null    && echo "clean:   przez feztrash" || _dim "clean:   rm -rf (feztrash brak)"
 }
 
 info() {
@@ -102,7 +97,7 @@ info() {
     echo "fezbuild build [cel]        # to samo jawnie"
     echo "fezbuild run [cel] [-- args]# build + odpal"
     echo "fezbuild watch [cel]        # rebuild+run przy kazdej zmianie *.c/*.h"
-    echo "fezbuild clean              # usuwa $BUILD_DIR/ (przez feztrash jesli jest)"
+    echo "fezbuild clean              # rm -rf $BUILD_DIR/"
     echo "fezbuild -c [flagi]         # -b <cel> -r <cel> -w <cel> -c"
 }
 

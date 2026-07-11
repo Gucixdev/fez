@@ -28,6 +28,7 @@ feztool -i       # print command reference
 | `fezcleaner` | system cleanup — RAM, logs, cache, packages, trash |
 | `fezdeploy` | deploy — git/github/gitlab/rsync/ftp/scp |
 | `fezgh2fp` | GitHub repo → Flatpak build |
+| `fezlog` | log viewer/tailer — journalctl units, system, or files, colorized, fzf source picker |
 | `fezmain` | systemd service dashboard — vsv-style fzf TUI (start/stop/restart/logs) |
 | `fezman` | fzf TUI for man pages, with live preview and apropos search |
 | `fezremote` | ssh tunneling / remote access |
