@@ -57,11 +57,26 @@ calls() {
 pick() {
     command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
     command -v strace &>/dev/null || { _err "Brakuje: strace  →  sudo pacman -S strace"; return 1; }
-    local line pid
-    line=$(ps -eo pid,args --no-headers | sed 's/^ *//' | _fzf_pick "proces> ")
-    pid=$(awk '{print $1}' <<< "$line")
-    [[ -z "$pid" ]] && { _dim "Nie wybrano procesu"; return 1; }
-    sudo strace -f -p "$pid"
+    local list_cmd='ps -eo pid,stat,pcpu,pmem,wchan:20,comm --no-headers --sort=-pcpu | head -60'
+
+    eval "$list_cmd" | fzf \
+        --prompt="feztrace> " \
+        --header="STAT: R=dziala S=spi D=czeka na I/O(!) Z=zombie(!) T=zatrzymany | enter=strace  ^s=probka 0.5s  ^r=odswiez" \
+        --preview='p={1}
+            echo "=== $(ps -o comm= -p "$p" 2>/dev/null) (PID $p) ==="
+            echo
+            grep -E "^(State|VmRSS|Threads):" /proc/$p/status 2>/dev/null
+            echo
+            echo "--- polecenie ---"
+            tr "\0" " " < /proc/$p/cmdline 2>/dev/null; echo
+            echo
+            echo "--- otwarte FD ($(ls /proc/$p/fd 2>/dev/null | wc -l)) ---"
+            ls -la /proc/$p/fd 2>/dev/null | tail -n +2 | head -12' \
+        --preview-window=right:55% \
+        --bind="ctrl-r:reload($list_cmd)" \
+        --bind="ctrl-s:execute(sudo timeout 0.5 strace -f -p {1} 2>&1 | tail -30; read -n1 -p '[Enter]')" \
+        --bind="enter:execute(sudo strace -f -p {1})" \
+        > /dev/null
 }
 
 status() {
@@ -72,7 +87,7 @@ status() {
 
 info() {
     status; echo
-    echo "feztrace pick                  # fzf: wybierz proces i podepnij strace"
+    echo "feztrace pick                  # fzf: procesy z STAT/WCHAN, podglad FD, ^s=probka, enter=strace"
     echo "feztrace full <pid|komenda>    # pelny strace -f"
     echo "feztrace files <pid|komenda>   # tylko syscalle plikowe"
     echo "feztrace net <pid|komenda>     # tylko syscalle sieciowe"
