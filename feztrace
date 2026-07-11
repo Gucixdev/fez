@@ -58,9 +58,9 @@ pick() {
     command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
     command -v strace &>/dev/null || { _err "Brakuje: strace  →  sudo pacman -S strace"; return 1; }
     local line pid
-    line=$(ps -eo pid,comm,args --no-headers | sed 's/^ *//' | _fzf_pick "proces> ")
+    line=$(ps -eo pid,args --no-headers | sed 's/^ *//' | _fzf_pick "proces> ")
     pid=$(awk '{print $1}' <<< "$line")
-    [[ -z "$pid" ]] && return 1
+    [[ -z "$pid" ]] && { _dim "Nie wybrano procesu"; return 1; }
     sudo strace -f -p "$pid"
 }
 

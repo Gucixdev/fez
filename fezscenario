@@ -30,6 +30,25 @@ devices() {
     echo "  Mysz:       $(_detect_mouse)"
 }
 
+_pick_output() {
+    local outputs=()
+    if command -v wlr-randr &>/dev/null; then
+        mapfile -t outputs < <(wlr-randr 2>/dev/null | grep -v '^ ' | awk '{print $1}')
+    elif command -v hyprctl &>/dev/null; then
+        if command -v jq &>/dev/null; then
+            mapfile -t outputs < <(hyprctl monitors -j 2>/dev/null | jq -r '.[].name')
+        else
+            # bez jq: nazwy monitorow nie sa czysto numeryczne (w odroznieniu od nazw workspace'ow)
+            mapfile -t outputs < <(hyprctl monitors -j 2>/dev/null | grep -o '"name": *"[^"]*"' | cut -d'"' -f4 | grep -v '^[0-9]*$')
+        fi
+    fi
+    case "${#outputs[@]}" in
+        0) ;;
+        1) echo "${outputs[0]}" ;;
+        *) printf '%s\n' "${outputs[@]}" | _fzf_pick "monitor> " ;;
+    esac
+}
+
 _list_dirs() {
     local -n _out="$1"; _out=()
     [[ ! -d "$SCENARIO_DIR" ]] && return
@@ -74,6 +93,10 @@ rec() {
     echo "  Klawiatura: $kb"
     [[ -n "$ms" ]] && echo "  Mysz:       $ms"
     echo -n "Nagrywac tez ekran? [t/N] "; read -r yn_screen
+    local output=""
+    [[ "$yn_screen" == t || "$yn_screen" == T ]] && output=$(_pick_output)
+
+    sudo -v || { echo "Autoryzacja nieudana"; return 1; }
 
     local pids=()
     sudo evemu-record "$kb" > "$dir/keyboard.evemu" &
@@ -83,9 +106,9 @@ rec() {
         pids+=($!)
     fi
     if [[ "$yn_screen" == t || "$yn_screen" == T ]]; then
-        wf-recorder -f "$dir/screen.mkv" &
+        wf-recorder ${output:+-o "$output"} -f "$dir/screen.mkv" &
         pids+=($!)
-        echo "Nagrywanie ekranu aktywne"
+        echo "Nagrywanie ekranu aktywne${output:+ ($output)}"
     fi
 
     echo '{"name":"'"$name"'","date":"'"$(date -Iseconds)"'","kb":"'"$kb"'","mouse":"'"$ms"'"}' > "$dir/meta.json"
