@@ -172,16 +172,7 @@ all() { browse; }
 
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
-tui() {
-    local cmds=(browse saved status info)
-    local descs=(
-        "fzf: lista sieci na zywo (connect/disconnect/zapomnij/rescan)"
-        "zapisane polaczenia"
-        "status interfejsu"
-        "info + komendy"
-    )
-    _fzf_menu "fezwifi | $(_mode) | $(_iface)" cmds descs
-}
+tui() { browse; }
 
 cli() {
     shift
