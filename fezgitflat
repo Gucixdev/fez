@@ -35,6 +35,9 @@ _app_id_from_url() {
     local url="$1"
     local user; user=$(echo "$url" | sed 's|.*github.com/||' | cut -d'/' -f1)
     local repo; repo=$(echo "$url" | sed 's|.*github.com/||' | cut -d'/' -f2 | sed 's/\.git$//')
+    # flatpak app-id: tylko OSTATNI segment moze zawierac "-" (np. org "Comfy-Org"
+    # rozwala flatpak-builder: "Only last name segment can contain -")
+    user=$(echo "$user" | sed -E 's/-([a-zA-Z0-9])/\U\1/g')
     echo "io.github.${user}.${repo}"
 }
 
@@ -45,7 +48,27 @@ _detect_lang() {
     [[ -f "$dir/Makefile" || -f "$dir/makefile" ]]                 && echo make   && return
     [[ -f "$dir/pyproject.toml" || -f "$dir/setup.py" ]]           && echo python && return
     [[ -f "$dir/go.mod" ]]                                         && echo go     && return
+    # ostatnia deska ratunku przed "binary" — build lokalny (poza sandboxem)
+    # przez docker/podman wg Dockerfile, wynikowa binarka wpakowana do /app
+    [[ -f "$dir/Dockerfile" || -f "$dir/Containerfile" ]]          && echo docker && return
     echo binary
+}
+
+_dockertool() {
+    command -v podman &>/dev/null && { echo podman; return; }
+    command -v docker &>/dev/null && { echo docker; return; }
+}
+
+# wyciaga sciezke z ostatniego ENTRYPOINT/CMD w Dockerfile (json-array lub shell)
+_docker_entrypoint() {
+    local dockerfile="$1"
+    local line; line=$(grep -E '^(ENTRYPOINT|CMD)' "$dockerfile" 2>/dev/null | tail -1)
+    [[ -z "$line" ]] && return 1
+    if [[ "$line" =~ \[(.*)\] ]]; then
+        echo "${BASH_REMATCH[1]}" | tr -d '"' | cut -d',' -f1 | xargs
+    else
+        echo "$line" | awk '{print $2}'
+    fi
 }
 
 # generuje manifest dopasowany do wykrytego typu projektu; drukuje wykryty typ na stdout
@@ -165,6 +188,75 @@ modules:
     buildsystem: simple
     build-commands:
       - go build -o /app/bin/$repo_name .
+    sources:
+      - type: dir
+        path: ..
+EOF
+            ;;
+        docker)
+            local dc; dc=$(_dockertool)
+            if [[ -z "$dc" ]]; then
+                _err "Wykryto Dockerfile ale brak docker/podman  →  sudo pacman -S podman"
+                cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+command: $repo_name
+modules:
+  - name: $repo_name
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 $repo_name /app/bin/$repo_name
+    sources:
+      - type: dir
+        path: ..
+EOF
+                echo "binary"
+                return
+            fi
+
+            local dockerfile="$repo_dir/Dockerfile"
+            [[ -f "$dockerfile" ]] || dockerfile="$repo_dir/Containerfile"
+            local entry; entry=$(_docker_entrypoint "$dockerfile")
+            [[ -z "$entry" ]] && entry="/usr/local/bin/$repo_name"
+
+            echo "Buduje obraz lokalnie ($dc, poza sandboxem flatpaka) — moze to potrwac..." >&2
+            local img; img="fezgitflat-tmp-$(printf '%s' "$repo_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-')"
+            if ! "$dc" build -t "$img" "$repo_dir" >&2; then
+                _err "Build $dc nieudany"
+                return 1
+            fi
+
+            local cid; cid=$("$dc" create "$img" 2>/dev/null)
+            local outbin="$repo_dir/.fezgitflat-bin"
+            rm -f "$outbin"
+            "$dc" cp "$cid:$entry" "$outbin" 2>/dev/null
+            "$dc" rm "$cid" &>/dev/null
+            "$dc" rmi "$img" &>/dev/null
+
+            if [[ ! -f "$outbin" ]]; then
+                _err "Nie znaleziono $entry w zbudowanym obrazie — sprawdz ENTRYPOINT/CMD w $dockerfile i popraw manifest recznie"
+            else
+                chmod +x "$outbin"
+                if file "$outbin" 2>/dev/null | grep -q 'statically linked'; then
+                    _dim "Binarka statycznie linkowana z obrazu $dc — powinna dzialac bez problemu"
+                else
+                    _dim "UWAGA: binarka dynamicznie linkowana z obrazu $dc — moze nie dzialac jesli biblioteki obrazu roznia sie od Flatpak runtime. Sprawdz recznie jesli sie nie uruchomi."
+                fi
+            fi
+
+            cat > "$manifest" <<EOF
+app-id: $app_id
+runtime: org.freedesktop.Platform
+runtime-version: '$RUNTIME_VER'
+sdk: org.freedesktop.Sdk
+command: $(basename "$entry")
+modules:
+  - name: $repo_name
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 .fezgitflat-bin /app/bin/$(basename "$entry")
     sources:
       - type: dir
         path: ..
@@ -318,8 +410,10 @@ info() {
     echo
     echo "Bez wlasnego manifestu w repo wykrywa typ projektu i generuje jeden:"
     echo "  rust (Cargo.toml), cmake (CMakeLists.txt), make (Makefile),"
-    echo "  python (pyproject.toml/setup.py), go (go.mod) — inaczej minimalny"
-    echo "  manifest zakladajacy gotowy plik binarny o nazwie repo."
+    echo "  python (pyproject.toml/setup.py), go (go.mod),"
+    echo "  docker (Dockerfile/Containerfile — buduje lokalnie docker/podman,"
+    echo "  wyciaga binarke z ENTRYPOINT/CMD) — inaczej minimalny manifest"
+    echo "  zakladajacy gotowy plik binarny o nazwie repo."
 }
 
 all() { list; }
