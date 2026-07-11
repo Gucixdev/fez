@@ -15,7 +15,9 @@ browse() {
     local sel
     sel=$(_names | fzf --prompt="man> " \
         --preview 'man {} 2>/dev/null | col -bx' --preview-window="$PREVIEW_WIDTH")
-    [[ -n "$sel" ]] && man "$sel"
+    if [[ -n "$sel" ]]; then
+        man "$sel"
+    fi
 }
 
 search() {
@@ -28,7 +30,9 @@ search() {
     local sel; sel=$(echo "$hits" | fzf --prompt="man ($q)> " \
         --preview 'man $(echo {} | awk -F"[ (]" "{print \$1}") 2>/dev/null | col -bx' \
         --preview-window="$PREVIEW_WIDTH")
-    [[ -n "$sel" ]] && man "$(echo "$sel" | awk -F'[ (]' '{print $1}')"
+    if [[ -n "$sel" ]]; then
+        man "$(echo "$sel" | awk -F'[ (]' '{print $1}')"
+    fi
 }
 
 open() {

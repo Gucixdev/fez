@@ -60,7 +60,9 @@ browse() {
     sel=$( { echo "system"; echo "$units"; echo "$files"; } | fzf --prompt="fezlog> " \
         --preview 'tail -n 40 {} 2>/dev/null || journalctl --no-pager -u {} -n 40 2>/dev/null' \
         --preview-window=down:50%)
-    [[ -n "$sel" ]] && follow "$sel"
+    if [[ -n "$sel" ]]; then
+        follow "$sel"
+    fi
 }
 
 status() {

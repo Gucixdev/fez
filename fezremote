@@ -188,7 +188,8 @@ kill_tunnel() {
     [[ -z "$pid" ]] && { echo "Nie znaleziono tunelu: $name"; return 1; }
     kill "$pid" 2>/dev/null && echo "Zatrzymano: $name (PID $pid)" || echo "Nie mozna zatrzymac PID $pid"
     local tmp; tmp=$(mktemp)
-    grep -v "^$name " "$_PIDS" > "$tmp" && mv "$tmp" "$_PIDS"
+    grep -v "^$name " "$_PIDS" > "$tmp"
+    mv "$tmp" "$_PIDS"
 }
 
 status() {

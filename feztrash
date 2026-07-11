@@ -58,7 +58,9 @@ list() {
         ts="${line%%$'\t'*}"; orig="${line#*$'\t'}"
         printf "%-4s %-30s %-17s %s\n" "$i" "$name" "$([[ -n "$ts" ]] && date -d "@$ts" '+%Y-%m-%d %H:%M' || echo '?')" "${orig:-?}"
     done < <(find "$TRASH_DIR" -mindepth 1 -maxdepth 1 -not -name "$(basename "$LOG_FILE")" -printf '%f\n' 2>/dev/null | sort)
-    [[ $i -eq 0 ]] && echo "Kosz pusty"
+    if [[ $i -eq 0 ]]; then
+        echo "Kosz pusty"
+    fi
 }
 
 restore() {

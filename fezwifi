@@ -22,6 +22,7 @@ scan() {
     case "$mode" in
         nmcli)  nmcli dev wifi rescan 2>/dev/null ;;
         iwd)    iwctl station "$iface" scan 2>/dev/null ;;
+        *)      _dim "iwlist skanuje i zwraca wyniki w jednym kroku — patrz 'list'" ;;
     esac
 }
 

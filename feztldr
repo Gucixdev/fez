@@ -97,7 +97,9 @@ search() {
         echo "$matches" | column
         echo -n "Ktora komenda? "; read -r pick
     fi
-    [[ -n "$pick" ]] && browse "$pick"
+    if [[ -n "$pick" ]]; then
+        browse "$pick"
+    fi
 }
 
 status() {

@@ -144,11 +144,11 @@ restore() {
         echo
         echo -n "Skopiowac komendy do schowka? [t/N] "; read -r yn
         if [[ "$yn" == t || "$yn" == T ]]; then
-            printf "mount %s /mnt\ncd /mnt\nmv @ @.old-%s\nbtrfs subvolume snapshot @snapshots/%s @\numount /mnt\nreboot" \
-                "$DEV" "$DATE" "$name" | wl-copy 2>/dev/null || \
-            printf "mount %s /mnt\ncd /mnt\nmv @ @.old-%s\nbtrfs subvolume snapshot @snapshots/%s @\numount /mnt\nreboot" \
-                "$DEV" "$DATE" "$name" | xclip -selection clipboard 2>/dev/null
-            echo "Skopiowano"
+            local cmds; cmds=$(printf "mount %s /mnt\ncd /mnt\nmv @ @.old-%s\nbtrfs subvolume snapshot @snapshots/%s @\numount /mnt\nreboot" \
+                "$DEV" "$DATE" "$name")
+            echo "$cmds" | wl-copy 2>/dev/null \
+                && _ok "Skopiowano" \
+                || { echo "$cmds" | xclip -selection clipboard 2>/dev/null && _ok "Skopiowano" || _err "Brak wl-copy/xclip"; }
         fi
     fi
 }

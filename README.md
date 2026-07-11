@@ -22,26 +22,26 @@ feztool -i       # print command reference
 
 | tool | what it does |
 |---|---|
-| `fezbackup` | backup |
-| `fezbt` | bluetooth |
+| `fezbackup` | btrfs snapshot manager — create/keep/restore/export root or home snapshots |
+| `fezbt` | bluetooth — fzf device browser (pair/connect/disconnect/forget/rescan) |
 | `fezbuild` | C build tool — nob.c-inspired, incremental, no Makefile needed |
 | `fezcheck` | lint/health-check for any project — syntax, shellcheck, deps by detected language, perms, install state |
 | `fezcleaner` | system cleanup — RAM, logs, cache, packages |
-| `fezdeploy` | deploy — git/github/gitlab/rsync/ftp/scp |
+| `fezdeploy` | git push/tag/release (gh/glab/tea) + package publish (npm/cargo/PyPI/AUR) |
 | `fezgitflat` | GitHub repo → Flatpak — fzf search, then auto-detects project type (rust/cmake/make/python/go) to generate the build manifest |
 | `fezlog` | log viewer/tailer — journalctl units, system, or files, colorized, fzf source picker |
 | `fezmain` | systemd service dashboard — vsv-style fzf TUI (start/stop/restart/logs) |
-| `fezmon` | resource monitor — CPU/RAM/GPU/disk/net/sockets, live view, fzf process picker (kill) |
 | `fezman` | fzf TUI for man pages, with live preview and apropos search |
-| `fezremote` | ssh tunneling / remote access |
-| `fezscenario` | record and replay command scenarios |
+| `fezmon` | resource monitor — CPU/RAM/GPU/disk/net/sockets, live view, fzf process picker (kill) |
+| `fezremote` | ssh host manager + tunnels — fzf browser (connect/ping/forget/tunnel L·R·SOCKS5) |
+| `fezscenario` | record and replay keyboard/mouse/screen scenarios |
 | `fezsort` | organize files in a folder — by extension, date, size, or find/remove duplicates |
-| `feztemplate` | generates a new `fez*` tool skeleton with the standard interface |
 | `feztest` | run tests for any project — auto-detects rust/go/node/python/bats/plain shell |
+| `feztemplate` | generates a new `fez*` tool skeleton with the standard interface |
 | `feztldr` | fzf TUI generated from tldr pages |
 | `feztrace` | strace/ltrace wrapper — attach or launch, filter by syscall category, fzf process picker |
 | `feztrash` | safe `rm` — moves to `~/.trash`, dedups by suffix, restore/purge/empty |
-| `fezwifi` | wifi management |
+| `fezwifi` | wifi — fzf network browser (connect/disconnect/forget/rescan) |
 
 ## Install
 
