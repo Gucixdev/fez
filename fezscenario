@@ -145,18 +145,16 @@ run() {
     local dir="$SCENARIO_DIR/$name"
     [[ ! -d "$dir" ]] && echo "Brak scenariusza: $name" && return 1
 
-    local kb; kb=$(grep -o '"kb": "[^"]*"' "$dir/meta.json" 2>/dev/null | cut -d'"' -f4)
-    local ms; ms=$(grep -o '"mouse": "[^"]*"' "$dir/meta.json" 2>/dev/null | cut -d'"' -f4)
-    [[ -z "$kb" ]] && kb=$(_detect_keyboard)
+    sudo -v || { echo "Autoryzacja nieudana"; return 1; }
 
     echo "Odtwarzanie: $name  (Ctrl+C = stop)"
     local pids=()
     if [[ -f "$dir/keyboard.evemu" ]]; then
-        sudo evemu-play "$kb" < "$dir/keyboard.evemu" &
+        printf '\n' | sudo evemu-play "$dir/keyboard.evemu" &
         pids+=($!)
     fi
-    if [[ -f "$dir/mouse.evemu" && -n "$ms" ]]; then
-        sudo evemu-play "$ms" < "$dir/mouse.evemu" &
+    if [[ -f "$dir/mouse.evemu" ]]; then
+        printf '\n' | sudo evemu-play "$dir/mouse.evemu" &
         pids+=($!)
     fi
     wait "${pids[@]}" 2>/dev/null
