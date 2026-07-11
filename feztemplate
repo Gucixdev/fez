@@ -1,44 +1,92 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
-# fezTOOL — short description
+# feztemplate — generuje szkielet nowego narzedzia fez* (standardowy interfejs)
 # ─────────────── CONFIG ───────────────
-# KEY="value"
+FEZDIR="$(dirname "${BASH_SOURCE[0]}")"
 # ──────────────────────────────────────
-. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+. "$FEZDIR/_fez.sh"
+
+new() {
+    local name="${1:-}"
+    [[ -z "$name" ]] && { echo -n "Nazwa nowego narzedzia (bez prefiksu fez): "; read -r name; }
+    [[ -z "$name" ]] && { _err "Nazwa wymagana"; return 1; }
+    local toolname="fez${name}"
+    local dest="$FEZDIR/$toolname"
+    [[ -e "$dest" ]] && { _err "Juz istnieje: $dest"; return 1; }
+
+    cat > "$dest" <<EOF
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
+# $toolname — TODO: krotki opis
+. "\$(dirname "\${BASH_SOURCE[0]}")/_fez.sh"
 
 cmd_a() { echo "cmd_a"; }
-cmd_b() { echo "cmd_b"; }
-cmd_c() { echo "cmd_c"; }
 
-status() { echo "fezTOOL status"; }
+status() { echo "$toolname: status"; }
 
 info() {
     status; echo
-    echo "fezTOOL cmd_a      # opis a"
-    echo "fezTOOL cmd_b      # opis b"
-    echo "fezTOOL cmd_c      # opis c"
-    echo "fezTOOL -a         # wszystko"
-    echo "fezTOOL -c [flagi] # -a -b -c"
+    echo "$toolname cmd_a      # TODO opis"
+    echo "$toolname -a         # wszystko"
+    echo "$toolname -c [flagi] # -a"
 }
 
-all() { cmd_a; cmd_b; cmd_c; }
+all() { cmd_a; }
+
+_do() { declare -f "\$1" &>/dev/null && eval "\$1" || return 1; }
+
+tui() {
+    local cmds=(cmd_a)
+    local descs=("TODO opis")
+    _fzf_menu "$toolname" cmds descs
+}
+
+cli() {
+    shift
+    while [[ \$# -gt 0 ]]; do
+        case "\$1" in
+            -a|--cmd-a) cmd_a ;;
+            *) echo "Nieznana flaga: \$1"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "\${1:-tui}" in
+    tui|-t)  tui ;;
+    cli|-c)  cli "\$@" ;;
+    all|-a)  all ;;
+    info|-i) info ;;
+    *)       _do "\$1" || echo "Uzycie: $toolname [cmd_a|tui|cli|-a|-i]" ;;
+esac
+EOF
+    chmod +x "$dest"
+    _ok "Utworzono: $dest"
+    echo "Edytuj funkcje, dodaj do tabeli w README.md, uruchom ./install.sh."
+}
+
+status() {
+    printf "Folder:     %s\n" "$FEZDIR"
+    printf "Narzedzia:  %s\n" "$(find "$FEZDIR" -maxdepth 1 -type f -name 'fez*' | wc -l)"
+}
+
+info() {
+    status; echo
+    echo "feztemplate new [nazwa]   # utworz szkielet fez<nazwa> ze standardowym interfejsem"
+    echo "feztemplate -c -n [nazwa] # to samo"
+}
+
+all() { new; }
 
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
-tui() {
-    local cmds=(cmd_a cmd_b cmd_c)
-    local descs=("opis a" "opis b" "opis c")
-    _fzf_menu "fezTOOL" cmds descs
-}
+tui() { new; }
 
 cli() {
     shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -a|--cmd-a) cmd_a ;;
-            -b|--cmd-b) cmd_b ;;
-            -c|--cmd-c) cmd_c ;;
-            *) echo "Nieznana flaga: $1"; return 1 ;;
+            -n|--new) shift; new "$1" ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -n [nazwa]"; return 1 ;;
         esac
         shift
     done
@@ -49,5 +97,7 @@ case "${1:-tui}" in
     cli|-c)  cli "$@" ;;
     all|-a)  all ;;
     info|-i) info ;;
-    *)       _do "$1" || echo "Uzycie: fezTOOL [cmd_a|cmd_b|cmd_c|status|tui|cli|-a|-i]" ;;
+    new)     new "${2:-}" ;;
+    status)  status ;;
+    *)       _do "$1" || echo "Uzycie: feztemplate [new|tui|cli|-a|-i] [nazwa]" ;;
 esac

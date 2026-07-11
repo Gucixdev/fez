@@ -6,8 +6,7 @@
 _fetch() {
     local prog="$1"
     if command -v tldr &>/dev/null; then
-        tldr --raw "$prog" 2>/dev/null || tldr "$prog" 2>/dev/null
-        return
+        tldr -m "$prog" 2>/dev/null && return
     fi
     local content
     for platform in common linux osx windows; do
@@ -26,6 +25,23 @@ _parse() {
         [[ "$line" =~ ^-\ (.+)$ ]]  && desc="${BASH_REMATCH[1]%:}"
         [[ "$line" =~ ^\`(.+)\`$ ]] && _descs+=("$desc") && _cmds+=("${BASH_REMATCH[1]}") && desc=""
     done <<< "$content"
+}
+
+_candidates() {
+    if command -v tldr &>/dev/null; then
+        tldr --list 2>/dev/null | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$'
+    else
+        compgen -c | sort -u
+    fi
+}
+
+_preview() {
+    tldr "$1" 2>/dev/null && return
+    local platform
+    for platform in common linux osx windows; do
+        curl -sf "https://raw.githubusercontent.com/tldr-pages/tldr/main/pages/$platform/$1.md" 2>/dev/null && return
+    done
+    echo "(brak strony tldr dla: $1)"
 }
 
 _copy() {
@@ -69,15 +85,14 @@ browse() {
 }
 
 search() {
-    command -v tldr &>/dev/null || { _err "tldr nie zainstalowany — paru -S tldr"; return 1; }
     local query="${1:-}"
-    local matches; matches=$(tldr --list 2>/dev/null | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$')
+    local matches; matches=$(_candidates)
     [[ -n "$query" ]] && matches=$(echo "$matches" | grep -i "$query")
     [[ -z "$matches" ]] && { _err "Brak wynikow dla: $query"; return 1; }
 
     local pick
     if command -v fzf &>/dev/null; then
-        pick=$(echo "$matches" | fzf --prompt="tldr search> " --preview 'tldr {} 2>/dev/null')
+        pick=$(echo "$matches" | fzf --prompt="tldr search ${query}> " --preview "$(declare -f _preview); _preview {}")
     else
         echo "$matches" | column
         echo -n "Ktora komenda? "; read -r pick
@@ -86,7 +101,7 @@ search() {
 }
 
 status() {
-    command -v tldr &>/dev/null && echo "tldr: OK ($(tldr --version 2>/dev/null))" || _err "tldr: BRAK (paru -S tldr)"
+    command -v tldr &>/dev/null && echo "tldr: OK ($(tldr --version 2>/dev/null))" || _dim "tldr: brak (fallback: curl + wszystkie komendy z PATH)"
     command -v curl &>/dev/null && echo "curl: OK" || _dim "curl: brak (bez fallback HTTP)"
     command -v fzf  &>/dev/null && echo "fzf:  OK" || _dim "fzf:  brak (wybor recznie)"
 }
@@ -105,9 +120,8 @@ _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
     local prog
-    if command -v tldr &>/dev/null && command -v fzf &>/dev/null; then
-        prog=$(tldr --list 2>/dev/null | tr ',' '\n' | sed 's/^ *//;s/ *$//' | grep -v '^$' \
-            | fzf --prompt="feztldr> " --preview 'tldr {} 2>/dev/null')
+    if command -v fzf &>/dev/null; then
+        prog=$(_candidates | fzf --prompt="feztldr> " --preview "$(declare -f _preview); _preview {}")
     else
         echo -n "Komenda do wyszukania: "; read -r prog
     fi

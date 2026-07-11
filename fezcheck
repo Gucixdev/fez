@@ -80,7 +80,7 @@ deps() {
     case "$lang" in
         fez)
             local -A used=(
-                [jq]="fezsort" [yq]="fezsort" [fzf]="wiele narzedzi (fzf TUI)" [tldr]="feztldr"
+                [jq]="fezscenario" [fzf]="wiele narzedzi (fzf TUI)" [tldr]="feztldr"
                 [curl]="feztldr" [inotifywait]="fezbuild" [cc]="fezbuild"
                 [systemctl]="fezmain" [journalctl]="fezmain,fezlog" [bluetoothctl]="fezbt"
                 [nmcli]="fezwifi" [iwctl]="fezwifi" [git]="fezdeploy,fezgh2fp" [gh]="fezdeploy,fezgh2fp"
