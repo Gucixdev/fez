@@ -5,10 +5,10 @@ Fast, easy bash automation toolkit. Every tool works the same way — no man pag
 ## Interface
 
 ```
-feztool          # info (status + command reference) — default
-feztool tui/-t   # interactive fzf menu
+feztool          # interactive fzf menu (default)
 feztool -a       # run the main action
 feztool -c ...   # cli flags, one-liner mode
+feztool -i       # print command reference
 ```
 
 ## Philosophy
