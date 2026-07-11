@@ -84,9 +84,13 @@ _rec_pick_inputs() {
 }
 
 _list_dirs() {
+    # posortowane wg mtime rosnaco: najstarsze pierwsze, najnowsze na koncu
     local -n _out="$1"; _out=()
     [[ ! -d "$SCENARIO_DIR" ]] && return
-    for d in "$SCENARIO_DIR"/*/; do [[ -d "$d" ]] && _out+=("$d"); done
+    local d
+    while IFS= read -r d; do
+        _out+=("$d")
+    done < <(find "$SCENARIO_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%T@ %p\n' 2>/dev/null | sort -n | cut -d' ' -f2-)
 }
 
 _scn_lines() {
@@ -319,16 +323,13 @@ all() { rec; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(rec stop run list delete play_screen devices reset_keys)
+    local cmds=(rec run stop delete play_screen)
     local descs=(
         "nagraj klawiature/mysz/ekran"
-        "zatrzymaj nagrywanie"
         "odtworz scenariusz"
-        "lista scenariuszy"
+        "zatrzymaj nagrywanie"
         "usun (multi-select)"
         "odtworz nagranie ekranu"
-        "pokaz urzadzenia wejscia"
-        "zwolnij stuck keys"
     )
     _fzf_menu "fezscenario | scenariusze: $(ls "$SCENARIO_DIR" 2>/dev/null | grep -vc '^\.')" cmds descs
 }
