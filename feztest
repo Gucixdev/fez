@@ -74,6 +74,15 @@ watch() {
         go)     gotestsum --watch 2>/dev/null || { echo "Zainstaluj: go install gotest.tools/gotestsum@latest"; return 1; } ;;
         python) ptw 2>/dev/null || { echo "Zainstaluj: pip install pytest-watch"; return 1; } ;;
         node)   npm test -- --watch ;;
+        shell|bats)
+            command -v inotifywait &>/dev/null || { echo "Zainstaluj: sudo pacman -S inotify-tools"; return 1; }
+            echo "Watch: uruchamiam przy kazdej zmianie *.sh / bezrozszerzeniowych skryptow (Ctrl+C = stop)"
+            run
+            while inotifywait -qq -r -e modify,create,delete,move . 2>/dev/null; do
+                echo "--- zmiana wykryta, ponownie ---"
+                run
+            done
+            ;;
         *)      echo "Brak obslugi watch dla: $lang" ;;
     esac
 }
