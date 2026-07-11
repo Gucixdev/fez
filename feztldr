@@ -51,28 +51,17 @@ browse() {
     [[ ${#cmds[@]} -eq 0 ]] && { _err "Brak przykladow dla: $prog"; return 1; }
 
     while true; do
-        echo "=== tldr: $prog ==="
-        for i in "${!cmds[@]}"; do
-            printf "%2d) %s\n    \033[90m%s\033[0m\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"
-        done
-        echo " 0) wyjdz"
-        echo -n "Wybierz: "; read -r n
-        case "$n" in
-            0|q|exit|quit) break ;;
-            ''|*[!0-9]*) echo "Wpisz numer" ;;
-            *)
-                local idx=$((n-1))
-                if [[ $idx -lt 0 || $idx -ge ${#cmds[@]} ]]; then
-                    echo "Nieprawidlowy numer"
-                else
-                    local cmd="${cmds[$idx]}"
-                    echo; echo "$ $cmd"
-                    echo -n "[k]opiuj / [u]ruchom / enter=powrot: "; read -r action
-                    case "$action" in
-                        k|K) _copy "$cmd" ;;
-                        u|U) eval "$cmd" ;;
-                    esac
-                fi ;;
+        local lines="" i
+        for i in "${!cmds[@]}"; do lines+="${cmds[$i]}"$'\t'"${descs[$i]}"$'\n'; done
+        local sel cmd
+        sel=$(printf '%s' "$lines" | _fzf_pick "tldr $prog> ")
+        [[ -z "$sel" ]] && break
+        cmd="${sel%%$'\t'*}"
+        echo; echo "$ $cmd"
+        echo -n "[k]opiuj / [u]ruchom / enter=powrot: "; read -r action
+        case "$action" in
+            k|K) _copy "$cmd" ;;
+            u|U) eval "$cmd" ;;
         esac
         echo
     done

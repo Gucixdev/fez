@@ -17,26 +17,28 @@ _field() {
 _show_hosts() {
     local hosts; mapfile -t hosts < <(_hosts)
     [[ ${#hosts[@]} -eq 0 ]] && { echo "Brak hostow. Dodaj: fezremote add"; return 1; }
-    local i=1
     for h in "${hosts[@]}"; do
         local hn; hn=$(_field "$h" HostName)
         local u;  u=$(_field "$h" User)
         local p;  p=$(_field "$h" Port); p="${p:-22}"
-        printf "  %2d) %-22s  %s@%s:%s\n" "$i" "$h" "${u:-?}" "${hn:-?}" "$p"
-        ((i++))
+        printf "  %-22s  %s@%s:%s\n" "$h" "${u:-?}" "${hn:-?}" "$p"
     done
 }
 
 _pick_host() {
     local -n _ph="$1"
     if [[ -n "${2:-}" ]]; then
-        _ph="$2"
-    else
-        _show_hosts || return 1
-        local hosts; mapfile -t hosts < <(_hosts)
-        echo -n "Nr/alias: "; read -r n
-        [[ "$n" =~ ^[0-9]+$ ]] && _ph="${hosts[$((n-1))]}" || _ph="$n"
+        _ph="$2"; return
     fi
+    local hosts; mapfile -t hosts < <(_hosts)
+    [[ ${#hosts[@]} -eq 0 ]] && { echo "Brak hostow. Dodaj: fezremote add"; return 1; }
+    local lines="" h hn u p
+    for h in "${hosts[@]}"; do
+        hn=$(_field "$h" HostName); u=$(_field "$h" User); p=$(_field "$h" Port); p="${p:-22}"
+        lines+=$(printf "%-22s  %s@%s:%s" "$h" "${u:-?}" "${hn:-?}" "$p")$'\n'
+    done
+    local pick; pick=$(printf '%s' "$lines" | _fzf_pick "host> ")
+    _ph=$(awk '{print $1}' <<< "$pick")
     [[ -z "$_ph" ]] && return 1
 }
 
@@ -179,64 +181,25 @@ info() {
 
 all() { tunnels; }
 
-_do() {
-    case "$1" in
-        list)         list ;;
-        connect)      connect ;;
-        add)          add ;;
-        remove)       remove ;;
-        ping)         ping ;;
-        tunnel_local) tunnel_local ;;
-        tunnel_remote) tunnel_remote ;;
-        tunnel_socks) tunnel_socks ;;
-        tunnels)      tunnels ;;
-        kill_tunnel)  kill_tunnel ;;
-        status)       status ;;
-        info)         info ;;
-        *)            return 1 ;;
-    esac
-}
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    while true; do
-        local hosts; mapfile -t hosts < <(_hosts)
-        echo "=== fezremote | ${#hosts[@]} hostow | $(_active_count) aktywnych tuneli ==="
-        _show_hosts
-        echo "---"
-        echo "  L) tunel lokalny    R) tunel zdalny    D) SOCKS5 proxy"
-        echo "  c) connect          a) dodaj host      r) usun host"
-        echo "  t) lista tuneli     k) kill tunel      p) ping"
-        echo "  0) wyjdz"
-        echo -n "Nr/alias lub komenda: "; read -r n
-        case "$n" in
-            0|exit|quit|q) break ;;
-            L|l) echo; tunnel_local;  echo -n "[Enter]"; read -r ;;
-            R)   echo; tunnel_remote; echo -n "[Enter]"; read -r ;;
-            D|d) echo; tunnel_socks;  echo -n "[Enter]"; read -r ;;
-            a)   echo; add;           echo -n "[Enter]"; read -r ;;
-            r)   echo; remove;        echo -n "[Enter]"; read -r ;;
-            t)   echo; tunnels;       echo -n "[Enter]"; read -r ;;
-            k)   echo; kill_tunnel;   echo -n "[Enter]"; read -r ;;
-            p)   echo; ping;          echo -n "[Enter]"; read -r ;;
-            c)   echo; connect ;;
-            ''|*[!0-9]*) [[ -n "$n" ]] && ssh "$n" ;;
-            *)
-                local host="${hosts[$((n-1))]}"
-                [[ -z "$host" ]] && echo "Nieprawidlowy numer" && continue
-                echo; echo "=== $host ==="
-                printf "  1) connect   2) tunel L   3) tunel R   4) SOCKS5   5) ping\n"
-                echo -n "Akcja [1]: "; read -r a; a="${a:-1}"
-                case "$a" in
-                    1) ssh "$host" ;;
-                    2) tunnel_local "$host" ;;
-                    3) tunnel_remote "$host" ;;
-                    4) tunnel_socks "$host" ;;
-                    5) ping "$host" ;;
-                    *) ssh "$host" ;;
-                esac
-                echo -n "[Enter]"; read -r ;;
-        esac
-    done
+    local cmds=(list connect add remove ping tunnel_local tunnel_remote tunnel_socks tunnels kill_tunnel status info)
+    local descs=(
+        "lista hostow"
+        "connect (ssh)"
+        "dodaj hosta"
+        "usun hosta"
+        "sprawdz dostepnosc"
+        "tunel lokalny (L)"
+        "tunel zdalny (R)"
+        "SOCKS5 proxy (D)"
+        "aktywne tunele"
+        "zatrzymaj tunel"
+        "status"
+        "info + komendy"
+    )
+    _fzf_menu "fezremote | $(_hosts | wc -l) hostow | $(_active_count) tuneli" cmds descs
 }
 
 cli() {

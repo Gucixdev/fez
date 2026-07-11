@@ -146,14 +146,7 @@ tui() {
         "rozmiar / ilosc"
         "info + komendy"
     )
-    while true; do
-        echo "=== feztrash | $(status | awk -F': *' '/Elementy/{print $2}') w koszu ==="
-        for i in "${!cmds[@]}"; do printf "%2d) %-10s  %s\n" $((i+1)) "${cmds[$i]}" "${descs[$i]}"; done
-        echo " 0) wyjdz"
-        echo -n "Wybierz: "; read -r n
-        _tui_dispatch "$n" cmds || break
-        echo; echo -n "[Enter]"; read -r
-    done
+    _fzf_menu "feztrash | $(status | awk -F': *' '/Elementy/{print $2}') w koszu" cmds descs
 }
 
 cli() {
