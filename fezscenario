@@ -63,6 +63,26 @@ _pick_output() {
     esac
 }
 
+_rec_pick_inputs() {
+    local kb="$1" ms="$2"
+    local items=("keyboard\t${kb:-brak}")
+    [[ -n "$ms" ]] && items+=("mouse\t$ms")
+    items+=("screen\twf-recorder")
+
+    if command -v fzf &>/dev/null; then
+        printf '%b\n' "${items[@]}" \
+            | fzf -m --delimiter=$'\t' --prompt="nagraj (tab=zaznacz, enter=potwierdz)> " \
+            | awk -F'\t' '{print $1}'
+    else
+        local it name
+        for it in "${items[@]}"; do
+            name=$(printf '%b' "$it" | awk -F'\t' '{print $1}')
+            echo -n "Nagrywac $name? [T/n] " >&2; read -r yn
+            [[ "$yn" != n && "$yn" != N ]] && echo "$name"
+        done
+    fi
+}
+
 _list_dirs() {
     local -n _out="$1"; _out=()
     [[ ! -d "$SCENARIO_DIR" ]] && return
@@ -99,31 +119,50 @@ rec() {
     local name="${1:-scenario-$(date +%Y%m%d-%H%M%S)}"
     local kb; kb=$(_detect_keyboard)
     local ms; ms=$(_detect_mouse)
-    [[ -z "$kb" ]] && echo "Nie znaleziono klawiatury" && devices && return 1
+
+    local picks; mapfile -t picks < <(_rec_pick_inputs "$kb" "$ms")
+    [[ ${#picks[@]} -eq 0 ]] && { echo "Nic nie zaznaczono"; return 1; }
+    local rec_kb=0 rec_ms=0 rec_screen=0 p
+    for p in "${picks[@]}"; do
+        case "$p" in
+            keyboard) rec_kb=1 ;;
+            mouse)    rec_ms=1 ;;
+            screen)   rec_screen=1 ;;
+        esac
+    done
+    if [[ "$rec_kb" -eq 1 && -z "$kb" ]]; then
+        echo "Nie znaleziono klawiatury"; devices; return 1
+    fi
+    if [[ "$rec_ms" -eq 1 && -z "$ms" ]]; then
+        echo "Nie znaleziono myszy"; devices; return 1
+    fi
 
     local dir="$SCENARIO_DIR/$name"
     mkdir -p "$dir"
     echo "Nagrywanie: $name"
-    echo "  Klawiatura: $kb"
-    [[ -n "$ms" ]] && echo "  Mysz:       $ms"
-    echo -n "Nagrywac tez ekran? [t/N] "; read -r yn_screen
+    [[ "$rec_kb" -eq 1 ]] && echo "  Klawiatura: $kb"
+    [[ "$rec_ms" -eq 1 ]] && echo "  Mysz:       $ms"
+
     local output=""
-    [[ "$yn_screen" == t || "$yn_screen" == T ]] && output=$(_pick_output)
+    [[ "$rec_screen" -eq 1 ]] && output=$(_pick_output)
 
     sudo -v || { echo "Autoryzacja nieudana"; return 1; }
 
     local pids=()
-    sudo evemu-record "$kb" > "$dir/keyboard.evemu" &
-    pids+=($!)
-    if [[ -n "$ms" ]]; then
+    if [[ "$rec_kb" -eq 1 ]]; then
+        sudo evemu-record "$kb" > "$dir/keyboard.evemu" &
+        pids+=($!)
+    fi
+    if [[ "$rec_ms" -eq 1 ]]; then
         sudo evemu-record "$ms" > "$dir/mouse.evemu" &
         pids+=($!)
     fi
-    if [[ "$yn_screen" == t || "$yn_screen" == T ]]; then
+    if [[ "$rec_screen" -eq 1 ]]; then
         wf-recorder ${output:+-o "$output"} -f "$dir/screen.mkv" &
         pids+=($!)
         echo "Nagrywanie ekranu aktywne${output:+ ($output)}"
     fi
+    [[ ${#pids[@]} -eq 0 ]] && { echo "Nic nie nagrywam"; return 1; }
 
     echo '{"name":"'"$name"'","date":"'"$(date -Iseconds)"'","kb":"'"$kb"'","mouse":"'"$ms"'"}' > "$dir/meta.json"
     printf '%s\n' "${pids[@]}" > "$SCENARIO_DIR/.rec_pids"
