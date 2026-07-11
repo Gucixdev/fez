@@ -36,6 +36,7 @@ feztool -i       # print command reference
 | `fezremote` | ssh tunneling / remote access |
 | `fezscenario` | record and replay command scenarios |
 | `fezsort` | organize files in a folder — by extension, date, size, or find/remove duplicates |
+| `feztest` | run tests for any project — auto-detects rust/go/node/python/bats/plain shell |
 | `feztldr` | fzf TUI generated from tldr pages |
 | `feztrace` | strace/ltrace wrapper — attach or launch, filter by syscall category, fzf process picker |
 | `feztrash` | safe `rm` — moves to `~/.trash`, dedups by suffix, restore/purge/empty |

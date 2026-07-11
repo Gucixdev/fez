@@ -3,6 +3,13 @@
 # feztest — run tests for any project (auto-detect framework)
 . "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
 
+_shell_scripts() {
+    find . -maxdepth 3 -type f -not -path '*/.git/*' 2>/dev/null | while IFS= read -r f; do
+        [[ -r "$f" ]] || continue
+        head -c 64 "$f" 2>/dev/null | grep -qE '^#!.*/(env +)?(bash|sh)\b' && echo "$f"
+    done
+}
+
 _detect() {
     [[ -f Cargo.toml ]]                                           && echo rust   && return
     [[ -f go.mod ]]                                               && echo go     && return
@@ -13,6 +20,8 @@ _detect() {
     [[ -f Makefile ]] && grep -q 'test' Makefile                  && echo make   && return
     [[ -f pom.xml ]]                                              && echo maven  && return
     [[ -f build.gradle || -f build.gradle.kts ]]                  && echo gradle && return
+    find . -maxdepth 3 -name '*.bats' 2>/dev/null | grep -q . && echo bats && return
+    [[ -n "$(_shell_scripts)" ]]                                  && echo shell  && return
     echo unknown
 }
 
@@ -30,6 +39,19 @@ run() {
         make)   make test ;;
         maven)  mvn test ${filter:+-Dtest="$filter"} ;;
         gradle) ./gradlew test ;;
+        bats)
+            command -v bats &>/dev/null || { echo "Zainstaluj: sudo pacman -S bats"; return 1; }
+            bats ${filter:+--filter "$filter"} .
+            ;;
+        shell)
+            local -a scripts; mapfile -t scripts < <(_shell_scripts)
+            local f ok=0 bad=0
+            for f in "${scripts[@]}"; do
+                if bash -n "$f" 2>&1; then ((ok++)); else ((bad++)); fi
+            done
+            [[ $bad -eq 0 ]] && echo "bash -n: $ok/$((ok+bad)) OK" || echo "bash -n: $ok/$((ok+bad)) OK, $bad z bledem"
+            command -v shellcheck &>/dev/null && shellcheck -x "${scripts[@]}" 2>/dev/null
+            ;;
         *)      echo "Nieznany framework — brak Cargo.toml/go.mod/package.json/Makefile/..." ;;
     esac
 }
@@ -64,6 +86,8 @@ status() {
         rust)   cargo test --no-run 2>&1 | tail -2 ;;
         go)     go vet ./... && echo "go vet: OK" ;;
         python) command -v pytest &>/dev/null && pytest --collect-only -q 2>/dev/null | tail -3 ;;
+        bats)   echo "Pliki .bats: $(find . -maxdepth 3 -name '*.bats' 2>/dev/null | wc -l)"; command -v bats &>/dev/null && echo "bats: OK" || echo "bats: BRAK" ;;
+        shell)  echo "Skrypty shell: $(_shell_scripts | wc -l)"; command -v shellcheck &>/dev/null && echo "shellcheck: OK" || echo "shellcheck: brak" ;;
     esac
 }
 
