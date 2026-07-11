@@ -25,7 +25,7 @@ feztool -i       # print command reference
 | `fezbackup` | backup |
 | `fezbt` | bluetooth |
 | `fezbuild` | C build tool — nob.c-inspired, incremental, no Makefile needed |
-| `fezcheck` | lint/health-check for this toolkit itself — syntax, shellcheck, perms, install state |
+| `fezcheck` | lint/health-check for any project — syntax, shellcheck, deps by detected language, perms, install state |
 | `fezcleaner` | system cleanup — RAM, logs, cache, packages, trash |
 | `fezdeploy` | deploy — git/github/gitlab/rsync/ftp/scp |
 | `fezgh2fp` | GitHub repo → Flatpak build |
