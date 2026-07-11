@@ -12,6 +12,26 @@ ram() {
     echo "RAM: $(free -h | awk '/^Mem/{print $3"/"$2}')"
 }
 
+# swapoff+swapon zwalnia caly swap (dziala tez na zram) — ALE zeby to zrobic,
+# kernel musi wpierw przeniesc wszystkie zswapowane strony z powrotem do RAM.
+# jesli wolnej RAM jest mniej niz zajetego swapu, to moze zawiesic system
+# (thrashing/OOM) zamiast cokolwiek "posprzatac" — wiec sprawdzamy najpierw.
+swap() {
+    local swap_used_kb mem_avail_kb
+    swap_used_kb=$(awk '/^SwapTotal:/{t=$2} /^SwapFree:/{f=$2} END{print t-f}' /proc/meminfo)
+    mem_avail_kb=$(awk '/^MemAvailable:/{print $2}' /proc/meminfo)
+    if [[ "$swap_used_kb" -eq 0 ]]; then
+        echo "Swap juz pusty"
+        return
+    fi
+    if (( swap_used_kb > mem_avail_kb )); then
+        _err "Za malo wolnej RAM ($((mem_avail_kb/1024))MB) zeby bezpiecznie zwolnic swap ($((swap_used_kb/1024))MB) — pominieto (system moglby sie zawiesic)"
+        return 1
+    fi
+    sudo swapoff -a && sudo swapon -a
+    echo "Swap: $(free -h | awk '/^Swap/{print $3"/"$2}')"
+}
+
 logs() {
     sudo journalctl --vacuum-time="${LOG_DAYS}d"
     sudo find /var/log -type f \( -name "*.log" -mtime +"$LOG_DAYS" -o -name "*.gz" \) -delete 2>/dev/null
@@ -107,6 +127,25 @@ flatpak() { command flatpak uninstall --unused -y; echo "Flatpak: $(du -sh ~/.va
 
 podman()  { command podman image prune -f 2>/dev/null; echo "Podman: usunieto nieuzywane warstwy obrazow"; }
 
+docker() {
+    command -v docker &>/dev/null || { _dim "docker: brak — pomijam"; return; }
+    command docker image prune -f 2>/dev/null && echo "Docker: usunieto nieuzywane warstwy obrazow" \
+        || _dim "Docker: daemon niedostepny — pomijam"
+}
+
+aur() {
+    command -v paru &>/dev/null || { _dim "paru: brak — pomijam"; return; }
+    echo "AUR cache przed: $(du -sh ~/.cache/paru 2>/dev/null | cut -f1)"
+    rm -rf ~/.cache/paru/clone/* 2>/dev/null
+    echo "AUR cache po:    $(du -sh ~/.cache/paru 2>/dev/null | cut -f1)"
+}
+
+coredumps() {
+    local before; before=$(sudo du -sh /var/lib/systemd/coredump 2>/dev/null | cut -f1)
+    sudo find /var/lib/systemd/coredump -mindepth 1 -delete 2>/dev/null
+    echo "Coredumps: ${before:-0} -> $(sudo du -sh /var/lib/systemd/coredump 2>/dev/null | cut -f1)"
+}
+
 status() {
     printf "RAM:      %s\n"  "$(free -h | awk '/^Mem/{print $3"/"$2}')"
     printf "SWAP:     %s\n"  "$(free -h | awk '/^Swap/{print $3"/"$2}')"
@@ -116,11 +155,14 @@ status() {
     printf "Cache:    %s\n"  "$(du -sh ~/.cache 2>/dev/null | cut -f1)"
     printf "Flatpak:  %s\n"  "$(du -sh ~/.var/app 2>/dev/null | cut -f1)"
     printf "Thumb:    %s\n"  "$(du -sh ~/.cache/thumbnails 2>/dev/null | cut -f1)"
+    printf "AUR:      %s\n"  "$(du -sh ~/.cache/paru 2>/dev/null | cut -f1)"
+    printf "Coredumps:%s\n"  "$(sudo du -sh /var/lib/systemd/coredump 2>/dev/null | cut -f1)"
 }
 
 info() {
     status; echo
     echo "fezcleaner ram          # czysci RAM cache"
+    echo "fezcleaner swap         # zwalnia swap/zram (pomija jesli za malo wolnej RAM)"
     echo "fezcleaner logs         # logi starsze niz ${LOG_DAYS} dni"
     echo "fezcleaner tmp          # czysci /tmp"
     echo "fezcleaner pacman       # cache pacmana: ${PACMAN_KEEP} wersje zainstalowanych + caly cache odinstalowanych"
@@ -128,22 +170,26 @@ info() {
     echo "fezcleaner kernels      # usuwa osierocone katalogi /usr/lib/modules (nigdy zainstalowane pakiety)"
     echo "fezcleaner pacnew       # fzf: przegladaj/usuwaj .pacnew .pacsave (z diffem)"
     echo "fezcleaner thumb        # czysci miniaturki"
-    echo "fezcleaner cache        # czysci ~/.cache"
+    echo "fezcleaner cache        # czysci ~/.cache (mozilla/chromium/pip/go/fontconfig)"
+    echo "fezcleaner aur          # czysci cache paru (~/.cache/paru/clone)"
+    echo "fezcleaner coredumps    # usuwa zapisane core dumpy (/var/lib/systemd/coredump)"
     echo "fezcleaner flatpak      # usuwa nieuzywane runtimes"
-    echo "fezcleaner podman       # czysci nieuzywane obrazy"
-    echo "fezcleaner -a           # wszystko naraz (bez kernels/pacnew — wymagaja potwierdzenia)"
-    echo "fezcleaner -c [flagi]   # -R -l -t -p -o -k -N -T -c -f -P -a"
+    echo "fezcleaner podman       # czysci nieuzywane obrazy podman"
+    echo "fezcleaner docker       # czysci nieuzywane obrazy docker"
+    echo "fezcleaner -a           # pelny clean (bez kernels/pacnew — te wymagaja potwierdzenia)"
+    echo "fezcleaner -c [flagi]   # -R -S -l -t -p -o -k -N -T -c -A -C -f -P -D -a"
 }
 
-all() { ram; logs; tmp; pacman; orphans; thumb; cache; flatpak; podman; }
+all() { ram; swap; logs; tmp; pacman; orphans; thumb; cache; aur; coredumps; flatpak; podman; docker; }
 
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(all ram logs tmp pacman orphans kernels pacnew thumb cache flatpak podman)
+    local cmds=(all ram swap logs tmp pacman orphans kernels pacnew thumb cache aur coredumps flatpak podman docker)
     local descs=(
-        "wszystko naraz"
+        "pelny clean (wszystko bezpieczne naraz)"
         "czysci RAM cache"
+        "zwalnia swap/zram (pomija jesli za malo wolnej RAM)"
         "logi starsze niz ${LOG_DAYS} dni"
         "czysci /tmp"
         "cache pacmana (${PACMAN_KEEP} wersje zainstalowanych + caly cache odinstalowanych)"
@@ -152,29 +198,36 @@ tui() {
         "przegladaj/usun .pacnew .pacsave (fzf + diff)"
         "czysci miniaturki"
         "czysci ~/.cache"
+        "czysci cache paru (AUR)"
+        "usuwa zapisane core dumpy"
         "usuwa nieuzywane runtimes flatpaka"
         "czysci nieuzywane obrazy podman"
+        "czysci nieuzywane obrazy docker"
     )
-    _fzf_menu "fezcleaner | RAM: $(free -h | awk '/^Mem/{print $3"/"$2}')" cmds descs
+    _fzf_menu "fezcleaner | RAM: $(free -h | awk '/^Mem/{print $3"/"$2}')  SWAP: $(free -h | awk '/^Swap/{print $3"/"$2}')" cmds descs
 }
 
 cli() {
     shift
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            -R|--ram)     ram ;;
-            -l|--logs)    logs ;;
-            -t|--tmp)     tmp ;;
-            -p|--pacman)  pacman ;;
-            -o|--orphans) orphans ;;
-            -k|--kernels) kernels ;;
-            -N|--pacnew)  pacnew ;;
-            -T|--thumb)   thumb ;;
-            -c|--cache)   cache ;;
-            -f|--flatpak) flatpak ;;
-            -P|--podman)  podman ;;
-            -a|--all)     all ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -R -l -t -p -o -k -N -T -c -f -P -a"; return 1 ;;
+            -R|--ram)       ram ;;
+            -S|--swap)      swap ;;
+            -l|--logs)      logs ;;
+            -t|--tmp)       tmp ;;
+            -p|--pacman)    pacman ;;
+            -o|--orphans)   orphans ;;
+            -k|--kernels)   kernels ;;
+            -N|--pacnew)    pacnew ;;
+            -T|--thumb)     thumb ;;
+            -c|--cache)     cache ;;
+            -A|--aur)       aur ;;
+            -C|--coredumps) coredumps ;;
+            -f|--flatpak)   flatpak ;;
+            -P|--podman)    podman ;;
+            -D|--docker)    docker ;;
+            -a|--all)       all ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -R -S -l -t -p -o -k -N -T -c -A -C -f -P -D -a"; return 1 ;;
         esac
         shift
     done
@@ -185,5 +238,5 @@ case "${1:-tui}" in
     cli|-c)  cli "$@" ;;
     all|-a)  all ;;
     info|-i) info ;;
-    *)       _do "$1" || echo "Uzycie: fezcleaner [ram|logs|tmp|pacman|orphans|kernels|pacnew|thumb|cache|flatpak|podman|tui|cli|-a|-i]" ;;
+    *)       _do "$1" || echo "Uzycie: fezcleaner [ram|swap|logs|tmp|pacman|orphans|kernels|pacnew|thumb|cache|aur|coredumps|flatpak|podman|docker|tui|cli|-a|-i]" ;;
 esac

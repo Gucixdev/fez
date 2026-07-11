@@ -26,7 +26,7 @@ feztool -i       # print command reference
 | `fezbt` | bluetooth — fzf device browser (pair/connect/disconnect/forget/rescan) |
 | `fezbuild` | C build tool — nob.c-inspired, incremental, no Makefile needed |
 | `fezcheck` | lint/health-check for any project — syntax, shellcheck, deps by detected language, perms, install state |
-| `fezcleaner` | system cleanup — RAM, logs, cache, packages |
+| `fezcleaner` | system cleanup — RAM, swap, logs, cache, pacman/AUR/podman/docker, coredumps, kernels, .pacnew |
 | `fezdeploy` | git push/tag/release (gh/glab/tea) + package publish (npm/cargo/PyPI/AUR) |
 | `fezgitflat` | GitHub repo → Flatpak — fzf search, then auto-detects project type (rust/cmake/make/python/go) to generate the build manifest |
 | `fezlog` | log viewer/tailer — journalctl units, system, or files, colorized, fzf source picker |
