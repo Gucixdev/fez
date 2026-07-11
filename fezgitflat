@@ -283,6 +283,30 @@ EOF
     echo "$lang"
 }
 
+# wspolny runner flatpak-buildera dla build()/refresh() — dwa cele:
+# 1) --state-dir przypiety do ~/.gitflat, bo flatpak-builder domyslnie
+#    tworzy .flatpak-builder/ (cache/build/ccache, potrafi byc dziesiatki MB)
+#    W BIEZACYM KATALOGU ROBOCZYM terminala, nie obok manifestu/build_dir —
+#    bez tego smieci sie wszedzie, gdziekolwiek akurat jest cwd (zobaczone
+#    naprawde: ~/dev/.flatpak-builder, 55M, po odpaleniu fezgitflat z ~/dev)
+# 2) caly output ląduje w <repo>-build.log obok build_dir/manifestu, zeby
+#    bylo co sprawdzic po nieudanym (albo i udanym) buildzie bez grzebania
+#    w scrollbacku terminala
+_fb_build() {
+    local build_dir="$1" manifest="$2" repo_name="$3"
+    local log="$GITFLAT_DIR/$repo_name-build.log"
+    local state_dir="$GITFLAT_DIR/.flatpak-builder"
+    {
+        echo "=== $(date '+%Y-%m-%d %H:%M:%S') ==="
+        echo "manifest: $manifest"
+    } > "$log"
+    flatpak-builder --state-dir="$state_dir" --force-clean "$build_dir" "$manifest" 2>&1 | tee -a "$log"
+    local rc=${PIPESTATUS[0]}
+    [[ $rc -ne 0 ]] && return "$rc"
+    flatpak-builder --state-dir="$state_dir" --user --install --force-clean "$build_dir" "$manifest" 2>&1 | tee -a "$log"
+    return "${PIPESTATUS[0]}"
+}
+
 _sdk_extension_for() {
     case "$1" in
         rust) echo "org.freedesktop.Sdk.Extension.rust-stable" ;;
@@ -366,8 +390,7 @@ build() {
     _ensure_sdk_extension "$lang" "$(_runtime_ver)" || return 1
 
     echo "Manifest: $manifest"
-    flatpak-builder --force-clean "$build_dir" "$manifest" || { _err "Build nieudany — sprawdz $manifest"; return 1; }
-    flatpak-builder --user --install --force-clean "$build_dir" "$manifest"
+    _fb_build "$build_dir" "$manifest" "$repo_name" || { _err "Build nieudany — log: $GITFLAT_DIR/$repo_name-build.log"; return 1; }
     _ok "Zainstalowano: $app_id"
     grep -q "^$app_id|" "$GITFLAT_INDEX" 2>/dev/null || echo "$app_id|$url|$manifest" >> "$GITFLAT_INDEX"
 }
@@ -397,9 +420,20 @@ refresh() {
     _ensure_sdk_extension "$lang" "$(_runtime_ver)" || return 1
 
     echo "Przebudowuje (bez re-clone): $manifest"
-    flatpak-builder --force-clean "$build_dir" "$manifest" || { _err "Build nieudany — sprawdz $manifest"; return 1; }
-    flatpak-builder --user --install --force-clean "$build_dir" "$manifest"
+    _fb_build "$build_dir" "$manifest" "$repo_name" || { _err "Build nieudany — log: $GITFLAT_DIR/$repo_name-build.log"; return 1; }
     _ok "Przebudowano/zainstalowano: $app"
+}
+
+logs() {
+    local sel
+    if command -v fzf &>/dev/null; then
+        sel=$(find "$GITFLAT_DIR" -maxdepth 1 -name '*-build.log' 2>/dev/null | sort \
+            | fzf --prompt="log> " --preview='tail -c 4000 {}' --preview-window=down:70%)
+    else
+        sel=$(find "$GITFLAT_DIR" -maxdepth 1 -name '*-build.log' 2>/dev/null | sort | _fzf_pick "log> ")
+    fi
+    [[ -z "$sel" ]] && { echo "Brak logow"; return 1; }
+    ${PAGER:-less} "$sel" 2>/dev/null || cat "$sel"
 }
 
 update() {
@@ -437,11 +471,14 @@ info() {
     echo "fezgitflat refresh [app]  # przebuduj bez re-clone (np. po recznej edycji manifestu)"
     echo "fezgitflat update [app]   # git pull + przebuduj istniejacy flatpak"
     echo "fezgitflat list           # lista zbudowanych flatpakow"
+    echo "fezgitflat logs [app]     # fzf: przegladaj log ostatniego builda"
     echo "fezgitflat status         # status"
-    echo "fezgitflat -c [flagi]     # -b <url> -g <fraza> -r <app> -u <app> -l"
+    echo "fezgitflat -c [flagi]     # -b <url> -g <fraza> -r <app> -u <app> -L -l"
     echo
-    echo "Kazde repo ląduje w ~/.gitflat/<nazwa> (klon) + ~/.gitflat/<nazwa>-build"
-    echo "(katalog roboczy flatpak-builder)."
+    echo "Kazde repo ląduje w ~/.gitflat/<nazwa> (klon), ~/.gitflat/<nazwa>-build"
+    echo "(katalog roboczy flatpak-buildera), ~/.gitflat/<nazwa>-build.log (pelny"
+    echo "output ostatniego builda) i ~/.gitflat/<nazwa>-manifest.yaml (jesli"
+    echo "wygenerowany, bo repo nie mial wlasnego)."
     echo
     echo "Bez wlasnego manifestu w repo wykrywa typ projektu i generuje jeden:"
     echo "  rust (Cargo.toml), cmake (CMakeLists.txt), make (Makefile),"
@@ -456,12 +493,13 @@ all() { list; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(build update refresh list)
+    local cmds=(build update refresh list logs)
     local descs=(
         "zbuduj + zainstaluj flatpak z GitHub URL (Enter=szukaj po nazwie)"
         "git pull + przebuduj istniejacy flatpak"
         "przebuduj bez re-clone (po recznej edycji manifestu)"
         "lista zbudowanych flatpakow"
+        "przegladaj log ostatniego builda (fzf)"
     )
     _fzf_menu "fezgitflat | $(wc -l "$GITFLAT_INDEX" 2>/dev/null || echo 0) flatpakow" cmds descs
 }
@@ -475,7 +513,8 @@ cli() {
             -r|--refresh) shift; refresh "$1" ;;
             -u|--update)  shift; update "$1" ;;
             -l|--list)    list ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -b <url> -g <fraza> -r <app> -u <app> -l"; return 1 ;;
+            -L|--logs)    logs ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -b <url> -g <fraza> -r <app> -u <app> -l -L"; return 1 ;;
         esac
         shift
     done
@@ -490,5 +529,5 @@ case "${1:-tui}" in
     search)  search "${@:2}" ;;
     refresh) refresh "${@:2}" ;;
     update)  update "${@:2}" ;;
-    *)       _do "$1" || echo "Uzycie: fezgitflat [build|update|refresh|list|search|status|tui|cli|-a|-i]" ;;
+    *)       _do "$1" || echo "Uzycie: fezgitflat [build|update|refresh|list|logs|search|status|tui|cli|-a|-i]" ;;
 esac
