@@ -71,7 +71,7 @@ list() { _show_hosts; }
 browse() {
     command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
     [[ -z "$(_hosts)" ]] && { _err "Brak hostow. Dodaj: fezremote add"; return 1; }
-    local self="${BASH_SOURCE[0]}"
+    local self; self=$(_self)
     local list_cmd="\"$self\" _hostlines"
 
     eval "$list_cmd" | fzf \

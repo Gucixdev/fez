@@ -7,6 +7,9 @@ _pick_dir() {
     local -n _d="$1"
     if [[ -n "${2:-}" ]]; then
         _d="$2"
+    elif command -v fzf &>/dev/null; then
+        _d=$(find . -maxdepth 5 -type d -not -path '*/.git*' 2>/dev/null | sort | fzf --prompt="Folder: ")
+        _d="${_d:-.}"
     else
         echo -n "Folder [.]: "; read -r _d; _d="${_d:-.}"
     fi
@@ -94,7 +97,7 @@ dedup() {
 }
 
 status() {
-    command -v fzf &>/dev/null && echo "fzf: OK" || _dim "fzf: brak (dedup: usuwa wszystkie duplikaty bez wyboru)"
+    command -v fzf &>/dev/null && echo "fzf: OK" || _dim "fzf: brak (wybor folderu recznie, dedup usuwa wszystkie duplikaty bez wyboru)"
 }
 
 info() {

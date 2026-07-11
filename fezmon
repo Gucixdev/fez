@@ -72,7 +72,7 @@ _dashboard() {
 
 live() {
     command -v watch &>/dev/null || { _err "Brakuje: watch (procps-ng)"; return 1; }
-    local self="${BASH_SOURCE[0]}"
+    local self; self=$(_self)
     watch -n "$REFRESH" -c "\"$self\" _dashboard"
 }
 

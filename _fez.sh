@@ -5,6 +5,14 @@ _ok()  { printf '\033[32m%s\033[0m\n' "$*"; }
 _err() { printf '\033[31m%s\033[0m\n' "$*" >&2; }
 _dim() { printf '\033[2m%s\033[0m\n' "$*"; }
 
+# _self — pelna, bezwzgledna sciezka do wolajacego skryptu. Do uzytku gdy
+# narzedzie musi wywolac samo siebie (np. fzf/watch execute()/reload()
+# spawnuja NOWY shell bez naszych funkcji w pamieci). BASH_SOURCE[0] bywa
+# gola nazwa bez katalogu (np. przy "bash fezmon" zamiast "./fezmon" albo
+# "bash fez/fezmon") — golej nazwy nie znajdzie PATH-lookup w tym nowym
+# shellu, wiec resolvujemy zawsze do absolutnej sciezki.
+_self() { realpath "${BASH_SOURCE[1]}" 2>/dev/null; }
+
 # _fzf_menu <tytul> <nazwa_tablicy_cmds> <nazwa_tablicy_opisow>
 # glowne menu narzedzia: fzf po "cmd  opis", enter uruchamia _do "$cmd"
 _fzf_menu() {
