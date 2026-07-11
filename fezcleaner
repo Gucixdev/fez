@@ -29,24 +29,70 @@ tmp() {
     echo "Tmp: $(du -sh /tmp 2>/dev/null | cut -f1)"
 }
 
-pacman() { sudo paccache -rk"$PACMAN_KEEP"; }
-
-orphans() {
-    local o; o=$(command pacman -Qdtq 2>/dev/null)
-    [[ -n "$o" ]] && sudo pacman -Rns --noconfirm $o || echo "Brak orphans"
+pacman() {
+    sudo paccache -rk"$PACMAN_KEEP"
+    sudo paccache -ruk0
 }
 
+orphans() {
+    local o total=0
+    while true; do
+        o=$(command pacman -Qdtq 2>/dev/null)
+        [[ -z "$o" ]] && break
+        sudo pacman -Rns --noconfirm $o || break
+        total=$((total + $(wc -w <<< "$o")))
+    done
+    [[ $total -gt 0 ]] && echo "Usunieto orphans: $total" || echo "Brak orphans"
+}
+
+# nigdy nie usuwa zainstalowanych pakietow kernela (rozne flavory jak
+# linux-cachyos + linux-cachyos-lts to NIE "stare wersje" siebie nawzajem —
+# to osobne, oba celowo zainstalowane kernele). Czysci tylko katalogi
+# /usr/lib/modules/<wersja> ktore nie naleza do zadnego pakietu w pacman
+# (osierocone smieci po nieudanej aktualizacji / starym DKMS), nigdy biezacy.
 kernels() {
     echo "Aktywny kernel: $(uname -r)"
-    local old; old=$(command pacman -Q | grep '^linux-cachyos' \
-        | grep -v "$(uname -r | grep -o '[0-9]\+\.[0-9]\+\.[0-9]\+')" | awk '{print $1}')
-    if [[ -n "$old" ]]; then
-        echo "Stare kernele: $old"
-        echo -n "Usunac? [t/N] "; read -r yn
-        [[ "$yn" == t || "$yn" == T ]] && sudo pacman -Rns --noconfirm $old
-    else
-        echo "Brak starych kerneli"
+    local dir ver orphaned=()
+    for dir in /usr/lib/modules/*/; do
+        dir="${dir%/}"; ver="$(basename "$dir")"
+        [[ "$ver" == "$(uname -r)" ]] && continue
+        command pacman -Qoq "$dir" &>/dev/null || orphaned+=("$dir")
+    done
+    if [[ ${#orphaned[@]} -eq 0 ]]; then
+        echo "Brak osieroconych katalogow modulow"
+        return
     fi
+    echo "Osierocone katalogi modulow (bez wlasciciela w pacman):"
+    printf '  %s\n' "${orphaned[@]}"
+    echo -n "Usunac? [t/N] "; read -r yn
+    if [[ "$yn" == [tT] ]]; then
+        local d; for d in "${orphaned[@]}"; do sudo rm -rf -- "$d"; done
+        echo "Usunieto: ${#orphaned[@]} katalog(ow)"
+    fi
+}
+
+pacnew() {
+    local files; mapfile -t files < <(sudo find /etc -type f \( -name '*.pacnew' -o -name '*.pacsave' \) 2>/dev/null | sort)
+    if [[ ${#files[@]} -eq 0 ]]; then
+        echo "Brak plikow .pacnew/.pacsave"
+        return
+    fi
+    if ! command -v fzf &>/dev/null; then
+        printf '%s\n' "${files[@]}"
+        return
+    fi
+    local sel
+    sel=$(printf '%s\n' "${files[@]}" | fzf -m \
+        --prompt="pacnew> " \
+        --header="spacja=zaznacz  enter=usun zaznaczone (zostaje oryginal)  ^o=otworz w \$EDITOR" \
+        --preview='orig="{}"; orig="${orig%.pacnew}"; orig="${orig%.pacsave}"; diff -u "$orig" {} 2>/dev/null || echo "(brak oryginalu do porownania)"' \
+        --bind="ctrl-o:execute(${EDITOR:-vim} {})")
+    [[ -z "$sel" ]] && return
+    local f n=0
+    while IFS= read -r f; do
+        [[ -n "$f" ]] && sudo rm -f -- "$f" && ((n++))
+    done <<< "$sel"
+    echo "Usunieto: $n plik(ow)"
 }
 
 thumb()   { rm -rf ~/.cache/thumbnails/*; echo "Miniaturki wyczyszczone"; }
@@ -77,15 +123,16 @@ info() {
     echo "fezcleaner ram          # czysci RAM cache"
     echo "fezcleaner logs         # logi starsze niz ${LOG_DAYS} dni"
     echo "fezcleaner tmp          # czysci /tmp"
-    echo "fezcleaner pacman       # cache pacmana (zostaja ${PACMAN_KEEP} wersje)"
-    echo "fezcleaner orphans      # usuwa osierocone paczki"
-    echo "fezcleaner kernels      # usuwa stare kernele"
+    echo "fezcleaner pacman       # cache pacmana: ${PACMAN_KEEP} wersje zainstalowanych + caly cache odinstalowanych"
+    echo "fezcleaner orphans      # usuwa osierocone paczki (petla az brak)"
+    echo "fezcleaner kernels      # usuwa osierocone katalogi /usr/lib/modules (nigdy zainstalowane pakiety)"
+    echo "fezcleaner pacnew       # fzf: przegladaj/usuwaj .pacnew .pacsave (z diffem)"
     echo "fezcleaner thumb        # czysci miniaturki"
     echo "fezcleaner cache        # czysci ~/.cache"
     echo "fezcleaner flatpak      # usuwa nieuzywane runtimes"
     echo "fezcleaner podman       # czysci nieuzywane obrazy"
-    echo "fezcleaner -a           # wszystko naraz"
-    echo "fezcleaner -c [flagi]   # -R -l -t -p -o -k -T -c -f -P -a"
+    echo "fezcleaner -a           # wszystko naraz (bez kernels/pacnew — wymagaja potwierdzenia)"
+    echo "fezcleaner -c [flagi]   # -R -l -t -p -o -k -N -T -c -f -P -a"
 }
 
 all() { ram; logs; tmp; pacman; orphans; thumb; cache; flatpak; podman; }
@@ -93,15 +140,16 @@ all() { ram; logs; tmp; pacman; orphans; thumb; cache; flatpak; podman; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(all ram logs tmp pacman orphans kernels thumb cache flatpak podman)
+    local cmds=(all ram logs tmp pacman orphans kernels pacnew thumb cache flatpak podman)
     local descs=(
         "wszystko naraz"
         "czysci RAM cache"
         "logi starsze niz ${LOG_DAYS} dni"
         "czysci /tmp"
-        "cache pacmana (zostaja ${PACMAN_KEEP} wersje)"
+        "cache pacmana (${PACMAN_KEEP} wersje zainstalowanych + caly cache odinstalowanych)"
         "usuwa osierocone paczki"
-        "usuwa stare kernele"
+        "usuwa osierocone katalogi modulow (bezpieczne, nie rusza zainstalowanych kerneli)"
+        "przegladaj/usun .pacnew .pacsave (fzf + diff)"
         "czysci miniaturki"
         "czysci ~/.cache"
         "usuwa nieuzywane runtimes flatpaka"
@@ -120,12 +168,13 @@ cli() {
             -p|--pacman)  pacman ;;
             -o|--orphans) orphans ;;
             -k|--kernels) kernels ;;
+            -N|--pacnew)  pacnew ;;
             -T|--thumb)   thumb ;;
             -c|--cache)   cache ;;
             -f|--flatpak) flatpak ;;
             -P|--podman)  podman ;;
             -a|--all)     all ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -R -l -t -p -o -k -T -c -f -P -a"; return 1 ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -R -l -t -p -o -k -N -T -c -f -P -a"; return 1 ;;
         esac
         shift
     done
@@ -136,5 +185,5 @@ case "${1:-tui}" in
     cli|-c)  cli "$@" ;;
     all|-a)  all ;;
     info|-i) info ;;
-    *)       _do "$1" || echo "Uzycie: fezcleaner [ram|logs|tmp|pacman|orphans|kernels|thumb|cache|flatpak|podman|tui|cli|-a|-i]" ;;
+    *)       _do "$1" || echo "Uzycie: fezcleaner [ram|logs|tmp|pacman|orphans|kernels|pacnew|thumb|cache|flatpak|podman|tui|cli|-a|-i]" ;;
 esac

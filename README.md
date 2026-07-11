@@ -38,7 +38,6 @@ feztool -i       # print command reference
 | `fezsort` | organize files in a folder — by extension, date, size, or find/remove duplicates |
 | `feztoolbox` | `~/.toolbox` folder — drop in any script, `feztoolbox` gives an fzf picker to run it |
 | `feztest` | run tests for any project — auto-detects rust/go/node/python/bats/plain shell |
-| `feztemplate` | generates a new `fez*` tool skeleton with the standard interface |
 | `feztldr` | fzf TUI generated from tldr pages |
 | `feztrace` | strace/ltrace wrapper — attach or launch, filter by syscall category, fzf process picker |
 | `feztrash` | safe `rm` — moves to `~/.trash`, dedups by suffix, restore/purge/empty |

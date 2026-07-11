@@ -11,6 +11,17 @@ _scripts() {
     find -L "$TOOLBOX_DIR" -maxdepth 1 -type f -not -name '.*' 2>/dev/null | sort
 }
 
+# skrypty fez* rozumieja "info" i drukuja opis+status (bezpieczne, read-only) —
+# to pokazujemy w podgladzie zamiast surowego kodu. inne skrypty (bez info())
+# nigdy nie sa odpalane z podgladu, zeby uniknac efektow ubocznych — fallback: head.
+_preview() {
+    local f="$1"
+    if grep -q '^info()' "$f" 2>/dev/null; then
+        "$f" info 2>/dev/null && return
+    fi
+    head -c 2000 "$f" 2>/dev/null
+}
+
 run() {
     mkdir -p "$TOOLBOX_DIR"
     command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
@@ -22,7 +33,8 @@ run() {
 
     local pick; pick=$(printf '%s\n' "${files[@]}" | fzf \
         --prompt="toolbox> " --with-nth=-1 --delimiter=/ \
-        --preview='head -c 2000 {} 2>/dev/null' --preview-window=down:15)
+        --preview="$(declare -f _preview); _preview {}" --preview-window=down:15 \
+        --header="enter=odpal  podglad=info() skryptu")
     [[ -z "$pick" ]] && return 1
 
     [[ -x "$pick" ]] || chmod +x "$pick" 2>/dev/null
