@@ -31,6 +31,12 @@ browse() {
         > /dev/null
 }
 
+live() {
+    command -v watch &>/dev/null || { _err "Brakuje: watch (procps-ng)"; return 1; }
+    local scope; scope=$(_scope "${1:-}")
+    watch -n 2 -c "SYSTEMD_COLORS=1 systemctl $scope list-units --type=service --all --no-legend --no-pager"
+}
+
 failed() {
     local scope; scope=$(_scope "${1:-}")
     local out; out=$(systemctl $scope --failed --no-legend --no-pager 2>/dev/null)
@@ -59,17 +65,19 @@ logs() {
 status() {
     command -v systemctl &>/dev/null && echo "systemd: OK" || _err "systemd: BRAK"
     command -v fzf &>/dev/null && echo "fzf:     OK" || _dim "fzf:     brak (tylko lista, bez interakcji)"
+    command -v watch &>/dev/null && echo "watch:   OK" || _dim "watch:   brak (live niedostepne)"
     printf "Failed:  %s\n" "$(systemctl --failed --no-legend --no-pager 2>/dev/null | wc -l)"
 }
 
 info() {
     status; echo
-    echo "fezmain [--user]              # TUI (fzf): przegladaj/steruj serwisami"
+    echo "fezmain live [--user]         # status uslug na zywo (watch, co 2s)"
+    echo "fezmain tui [--user]          # TUI (fzf): przegladaj/steruj serwisami"
     echo "fezmain failed [--user]       # tylko failed units"
     echo "fezmain start|stop|restart <unit>"
     echo "fezmain enable|disable <unit>"
     echo "fezmain logs <unit>           # journalctl -u <unit> -e"
-    echo "fezmain -c [flagi]            # -s|-x|-r|-e|-d|-l <unit>  -f [--user]"
+    echo "fezmain -c [flagi]            # -s|-x|-r|-e|-d|-l <unit>  -f [--user]  -L [--user]"
 }
 
 all() { browse; }
@@ -77,8 +85,9 @@ all() { browse; }
 _do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
 
 tui() {
-    local cmds=(browse failed start stop restart enable disable logs status info)
+    local cmds=(live browse failed start stop restart enable disable logs status info)
     local descs=(
+        "status uslug na zywo (watch)"
         "fzf: przegladaj/steruj serwisami"
         "tylko failed units"
         "uruchom uslugue"
@@ -104,17 +113,19 @@ cli() {
             -d|--disable) shift; disable "${1:-}" ;;
             -l|--logs)    shift; logs    "${1:-}" ;;
             -f|--failed)  shift; failed  "${1:-}" ;;
-            *) echo "Nieznana flaga: $1"; echo "Flagi: -s -x -r -e -d -l <unit>  -f [--user]"; return 1 ;;
+            -L|--live)    shift; live    "${1:-}" ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -s -x -r -e -d -l <unit>  -f [--user]  -L [--user]"; return 1 ;;
         esac
         shift
     done
 }
 
-case "${1:-tui}" in
+case "${1:-info}" in
     tui|-t)   tui ;;
     cli|-c)   cli "$@" ;;
     all|-a)   all ;;
     info|-i)  info ;;
+    live)     live "${2:-}" ;;
     browse)   browse "${2:-}" ;;
     failed)   failed "${2:-}" ;;
     start)    start "${2:-}" ;;

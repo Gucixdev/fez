@@ -133,7 +133,7 @@ cli() {
     done
 }
 
-case "${1:-tui}" in
+case "${1:-info}" in
     tui|-t)   tui ;;
     cli|-c)   cli "$@" ;;
     all|-a)   all ;;
