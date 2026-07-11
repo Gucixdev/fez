@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # fezmain (fezmaintenance) — systemd service dashboard, vsv-style
 # fzf: enter=status ctrl-r=restart ctrl-s=start ctrl-x=stop ctrl-e=enable ctrl-d=disable ctrl-l=logs
 # ─────────────── CONFIG ───────────────

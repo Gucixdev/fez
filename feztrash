@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # feztrash — safe rm replacement: moves files to ~/.trash instead of deleting
 # duplicate names get a numeric suffix (file.txt -> file_1.txt -> file_2.txt)
 # bez argumentu/nieznanej komendy == traktuje argumenty jako pliki do skasowania
@@ -89,7 +90,7 @@ purge() {
     while IFS=$'\t' read -r ts orig name; do
         if [[ -n "$name" && -e "$TRASH_DIR/$name" ]]; then
             if (( ts < cutoff )); then
-                rm -rf -- "$TRASH_DIR/$name"
+                rm -rf -- "${TRASH_DIR:?}/$name"
                 ((removed++))
             else
                 printf '%s\t%s\t%s\n' "$ts" "$orig" "$name" >> "$tmp"

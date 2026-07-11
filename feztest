@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # feztest — run tests for any project (auto-detect framework)
 . "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
 
@@ -20,7 +21,7 @@ run() {
     local filter="${1:-}"
     printf "Testy: %s | %s\n" "$lang" "$(pwd)"
     case "$lang" in
-        rust)   cargo test $filter ;;
+        rust)   cargo test ${filter:+"$filter"} ;;
         go)     go test ./... ${filter:+-run "$filter"} ;;
         bun)    bun test ${filter:+--filter "$filter"} ;;
         node)   npm test ;;

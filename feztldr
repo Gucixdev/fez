@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2178,SC2128  # "lines" to string budowany w petli, nie tablica
 # feztldr — TUI browser for tldr pages; pick example, copy or run
 . "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
 
@@ -52,7 +53,7 @@ browse() {
 
     while true; do
         local lines="" i
-        for i in "${!cmds[@]}"; do lines+="${cmds[$i]}"$'\t'"${descs[$i]}"$'\n'; done
+        for i in "${!cmds[@]}"; do lines="$lines${cmds[$i]}"$'\t'"${descs[$i]}"$'\n'; done
         local sel cmd
         sel=$(printf '%s' "$lines" | _fzf_pick "tldr $prog> ")
         [[ -z "$sel" ]] && break

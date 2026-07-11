@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # fezscenario — record and replay keyboard/mouse/screen scenarios
 # ─────────────── CONFIG ───────────────
 SCENARIO_DIR="$HOME/.local/share/fezscenario"
@@ -90,7 +91,7 @@ rec() {
     echo '{"name":"'"$name"'","date":"'"$(date -Iseconds)"'","kb":"'"$kb"'","mouse":"'"$ms"'"}' > "$dir/meta.json"
     printf '%s\n' "${pids[@]}" > "$SCENARIO_DIR/.rec_pids"
     echo "Nagrywanie... (Ctrl+C lub: fezscenario stop)"
-    trap "kill ${pids[*]} 2>/dev/null" INT
+    trap 'kill "${pids[@]}" 2>/dev/null' INT
     wait "${pids[@]}" 2>/dev/null
     trap - INT
 
@@ -211,12 +212,12 @@ delete() {
     echo "Do usuniecia:"; printf '  - %s\n' "${to_delete[@]}"
     echo -n "Potwierdzasz? [t/N] "; read -r yn
     [[ "$yn" != t && "$yn" != T ]] && echo "Anulowano" && return
-    for name in "${to_delete[@]}"; do rm -rf "$SCENARIO_DIR/$name" && echo "Usunieto: $name"; done
+    for name in "${to_delete[@]}"; do rm -rf "${SCENARIO_DIR:?}/$name" && echo "Usunieto: $name"; done
 }
 
 status() {
     echo "Katalog: $SCENARIO_DIR"
-    echo "Zapisane: $(ls "$SCENARIO_DIR" 2>/dev/null | grep -v '^\.' | wc -l)"
+    echo "Zapisane: $(ls "$SCENARIO_DIR" 2>/dev/null | grep -vc '^\.')"
     command -v evemu-record &>/dev/null && echo "evemu: OK" || echo "evemu: BRAK"
 }
 
@@ -252,7 +253,7 @@ tui() {
         "zwolnij stuck keys"
         "info + komendy"
     )
-    _fzf_menu "fezscenario | scenariusze: $(ls "$SCENARIO_DIR" 2>/dev/null | grep -v '^\.' | wc -l)" cmds descs
+    _fzf_menu "fezscenario | scenariusze: $(ls "$SCENARIO_DIR" 2>/dev/null | grep -vc '^\.')" cmds descs
 }
 
 cli() {

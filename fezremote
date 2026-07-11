@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034,SC2178,SC2128  # cmds/descs: nameref w _fzf_menu; lines: string, nie tablica
 # fezremote — SSH host manager + tunnel manager (local/remote/SOCKS5)
 # ─────────────── CONFIG ───────────────
 SSH_CFG="$HOME/.ssh/config"
@@ -11,6 +12,7 @@ _hosts() { grep '^Host ' "$SSH_CFG" 2>/dev/null | awk '{print $2}' | grep -v '[*
 
 _field() {
     local host="$1" field="$2"
+    # shellcheck disable=SC1087  # $field[[:space:]] to bash-var + awk bracket-expr, nie tablica
     awk "/^Host $host\$/{f=1} f && /^[[:space:]]*$field[[:space:]]/{print \$2; exit}" "$SSH_CFG" 2>/dev/null
 }
 
@@ -35,7 +37,7 @@ _pick_host() {
     local lines="" h hn u p
     for h in "${hosts[@]}"; do
         hn=$(_field "$h" HostName); u=$(_field "$h" User); p=$(_field "$h" Port); p="${p:-22}"
-        lines+=$(printf "%-22s  %s@%s:%s" "$h" "${u:-?}" "${hn:-?}" "$p")$'\n'
+        lines="$lines$(printf "%-22s  %s@%s:%s" "$h" "${u:-?}" "${hn:-?}" "$p")"$'\n'
     done
     local pick; pick=$(printf '%s' "$lines" | _fzf_pick "host> ")
     _ph=$(awk '{print $1}' <<< "$pick")

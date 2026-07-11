@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # fezbackup — btrfs snapshot manager
 # ─────────────── CONFIG ───────────────
 SNAP_DIR="/snapshots"
@@ -110,9 +111,9 @@ keep() {
     local snaps; _snaps snaps
     local count=${#snaps[@]}
     [[ $count -le $n ]] && echo "Masz $count snapshotow, limit=$n — nic do usuniecia" && return
-    local to_delete=$(( count - n ))
-    echo "Usuwam $to_delete najstarszych (zostaje $n):"
-    for s in "${snaps[@]:0:$to_delete}"; do
+    local n_old=$(( count - n ))
+    echo "Usuwam $n_old najstarszych (zostaje $n):"
+    for s in "${snaps[@]:0:$n_old}"; do
         echo "  - $(basename "$s")"; sudo btrfs subvolume delete "$s"
     done
 }

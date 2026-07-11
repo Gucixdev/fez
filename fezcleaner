@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
 # fezcleaner — system cleanup (RAM, logs, cache, packages, trash)
 # ─────────────── CONFIG ───────────────
 LOG_DAYS=7        # logi starsze niz N dni
