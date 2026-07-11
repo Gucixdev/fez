@@ -41,7 +41,9 @@ _pick_host() {
     done
     local pick; pick=$(printf '%s' "$lines" | _fzf_pick "host> ")
     _ph=$(awk '{print $1}' <<< "$pick")
-    [[ -z "$_ph" ]] && return 1
+    if [[ -z "$_ph" ]]; then
+        return 1
+    fi
 }
 
 _hostlines() {

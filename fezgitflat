@@ -4,16 +4,31 @@
 # ─────────────── CONFIG ───────────────
 FP_BUILD_DIR="$HOME/.local/share/fezgitflat/builds"
 FP_REPO_DIR="$HOME/.local/share/fezgitflat/repos"
-RUNTIME_VER="23.08"
+RUNTIME_VER_FALLBACK="24.08"   # gdy nic zainstalowane lokalnie
 # ──────────────────────────────────────
 . "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
 mkdir -p "$FP_BUILD_DIR" "$FP_REPO_DIR"
+
+# najnowsza wspolna wersja Sdk+Platform juz zainstalowana lokalnie — zeby nie
+# generowac manifestu z runtime, ktorego nie ma i trzeba by go dociagac/moze
+# byc juz EOL na flathub
+_runtime_ver() {
+    local v
+    v=$(flatpak list --runtime --columns=ref 2>/dev/null \
+        | grep -E '^org\.freedesktop\.(Sdk|Platform)/' \
+        | awk -F/ '{print $3}' | sort -V | uniq -c | sort -rn \
+        | awk '$1==2{print $2; exit}')
+    echo "${v:-$RUNTIME_VER_FALLBACK}"
+}
 
 _check_deps() {
     local missing=()
     command -v flatpak-builder &>/dev/null || missing+=(flatpak-builder)
     command -v git             &>/dev/null || missing+=(git)
-    [[ ${#missing[@]} -gt 0 ]] && echo "Brakuje: ${missing[*]}  →  sudo pacman -S ${missing[*]}" && return 1
+    if [[ ${#missing[@]} -gt 0 ]]; then
+        echo "Brakuje: ${missing[*]}  →  sudo pacman -S ${missing[*]}"
+        return 1
+    fi
 }
 
 _app_id_from_url() {
@@ -36,11 +51,22 @@ _detect_lang() {
 # generuje manifest dopasowany do wykrytego typu projektu; drukuje wykryty typ na stdout
 _generate_manifest() {
     local repo_dir="$1" repo_name="$2" app_id="$3" manifest="$4"
+    local RUNTIME_VER; RUNTIME_VER=$(_runtime_ver)
     local lang; lang=$(_detect_lang "$repo_dir")
     mkdir -p "$(dirname "$manifest")"
 
     case "$lang" in
         rust)
+            # nazwa binarki wg Cargo.toml — czesto ROZNI SIE od nazwy repo
+            # (np. repo "ripgrep" -> binarka "rg"), wiec zgadywanie po nazwie
+            # repo psuje install. cargo metadata dziala lokalnie, bez sandboxa.
+            local bin_name="$repo_name"
+            if command -v cargo &>/dev/null && command -v jq &>/dev/null; then
+                local detected; detected=$(cargo metadata --no-deps --format-version=1 \
+                    --manifest-path "$repo_dir/Cargo.toml" 2>/dev/null \
+                    | jq -r '.packages[].targets[] | select(.kind[]=="bin") | .name' | head -1)
+                [[ -n "$detected" ]] && bin_name="$detected"
+            fi
             cat > "$manifest" <<EOF
 app-id: $app_id
 runtime: org.freedesktop.Platform
@@ -50,13 +76,14 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
-command: $repo_name
+  build-args:
+    - --share=network
+command: $bin_name
 modules:
   - name: $repo_name
     buildsystem: simple
     build-commands:
-      - cargo build --release
-      - install -Dm755 target/release/$repo_name /app/bin/$repo_name
+      - cargo install --path . --root /app
     sources:
       - type: dir
         path: ..
@@ -104,6 +131,9 @@ app-id: $app_id
 runtime: org.freedesktop.Platform
 runtime-version: '$RUNTIME_VER'
 sdk: org.freedesktop.Sdk
+build-options:
+  build-args:
+    - --share=network
 command: $repo_name
 modules:
   - name: $repo_name
@@ -125,6 +155,8 @@ sdk-extensions:
   - org.freedesktop.Sdk.Extension.golang
 build-options:
   append-path: /usr/lib/sdk/golang/bin
+  build-args:
+    - --share=network
   env:
     GOBIN: /app/bin
 command: $repo_name
@@ -157,6 +189,31 @@ EOF
             ;;
     esac
     echo "$lang"
+}
+
+_sdk_extension_for() {
+    case "$1" in
+        rust) echo "org.freedesktop.Sdk.Extension.rust-stable" ;;
+        go)   echo "org.freedesktop.Sdk.Extension.golang" ;;
+        *)    echo "" ;;
+    esac
+}
+
+# upewnia sie, ze rozszerzenie SDK potrzebne dla danego jezyka jest zainstalowane
+# (--user jawnie, bo flathub bywa zarejestrowany i jako system i user remote —
+# bez --user flatpak pyta interaktywnie ktorego uzyc i sie wiesza w skrypcie)
+_ensure_sdk_extension() {
+    local lang="$1" ver="$2"
+    local ext; ext=$(_sdk_extension_for "$lang")
+    [[ -z "$ext" ]] && return 0
+    flatpak info --user "$ext//$ver" &>/dev/null && return 0
+    echo "Brakuje rozszerzenia SDK: $ext//$ver"
+    echo -n "Zainstalowac teraz (flatpak install --user flathub)? [T/n] "; read -r yn
+    if [[ "$yn" == n || "$yn" == N ]]; then
+        _err "Bez tego rozszerzenia build sie nie powiedzie"
+        return 1
+    fi
+    flatpak install --user -y --noninteractive flathub "$ext//$ver"
 }
 
 _list_local() {
@@ -208,7 +265,11 @@ build() {
         _ok "Brak manifestu w repo — wygenerowano dla wykrytego typu: $lang"
         echo "Manifest: $manifest"
         [[ "$lang" == binary ]] && _dim "Nie wykryto znanego build systemu — sprawdz/popraw manifest przed uruchomieniem ponownie"
+    else
+        local lang; lang=$(_detect_lang "$repo_dir")
     fi
+
+    _ensure_sdk_extension "$lang" "$(_runtime_ver)" || return 1
 
     echo "Manifest: $manifest"
     flatpak-builder --force-clean "$build_dir" "$manifest" || { _err "Build nieudany — sprawdz $manifest"; return 1; }
