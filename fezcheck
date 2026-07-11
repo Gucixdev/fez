@@ -1,0 +1,142 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
+# fezcheck — lint/health-check calego toolkita fez (skladnia, shellcheck, uprawnienia, instalacja)
+# ─────────────── CONFIG ───────────────
+BIN_DIR="$HOME/.local/bin"
+# ──────────────────────────────────────
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+FEZDIR="$(dirname "${BASH_SOURCE[0]}")"
+
+_tools() { find "$FEZDIR" -maxdepth 1 -type f -name 'fez*' | sort; }
+
+lint() {
+    local f name ok=0 bad=0 tmp
+    tmp=$(mktemp)
+    while IFS= read -r f; do
+        name=$(basename "$f")
+        if bash -n "$f" 2>"$tmp"; then
+            ((ok++))
+        else
+            ((bad++))
+            _err "SKLADNIA: $name"
+            sed 's/^/    /' "$tmp"
+        fi
+    done < <(_tools)
+    rm -f "$tmp"
+    [[ $bad -eq 0 ]] && _ok "Skladnia: $ok/$((ok+bad)) OK" || _err "Skladnia: $ok/$((ok+bad)) OK, $bad z bledem"
+
+    if command -v shellcheck &>/dev/null; then
+        local -a toolfiles; mapfile -t toolfiles < <(_tools)
+        local n; n=$(shellcheck -x "${toolfiles[@]}" 2>/dev/null | grep -c '^In ')
+        if [[ "$n" -eq 0 ]]; then
+            _ok "shellcheck: 0 uwag"
+        else
+            _dim "shellcheck: $n uwag (shellcheck -x fez* dla szczegolow)"
+        fi
+    else
+        _dim "shellcheck niezainstalowany — pomijam (sudo pacman -S shellcheck)"
+    fi
+}
+
+deps() {
+    local -A used=(
+        [jq]="fezsort" [yq]="fezsort" [fzf]="wiele narzedzi (fzf TUI)" [tldr]="feztldr"
+        [curl]="feztldr" [inotifywait]="fezbuild" [cc]="fezbuild"
+        [systemctl]="fezmain" [journalctl]="fezmain,fezlog" [bluetoothctl]="fezbt"
+        [nmcli]="fezwifi" [iwctl]="fezwifi" [git]="fezdeploy,fezgh2fp" [gh]="fezdeploy"
+        [flatpak-builder]="fezgh2fp" [evemu-record]="fezscenario" [btrfs]="fezbackup"
+        [rsync]="fezbackup,fezdeploy" [wl-copy]="feztldr,fezbackup" [xclip]="feztldr,fezbackup"
+        [strace]="feztrace" [ltrace]="feztrace" [shellcheck]="fezcheck"
+    )
+    local d
+    for d in "${!used[@]}"; do
+        if command -v "$d" &>/dev/null; then
+            printf "%-16s OK\n" "$d"
+        else
+            printf "%-16s brak  (%s)\n" "$d" "${used[$d]}"
+        fi
+    done | sort
+}
+
+perms() {
+    local f name bad=0
+    while IFS= read -r f; do
+        name=$(basename "$f")
+        [[ -x "$f" ]] || { _err "brak +x: $name"; bad=1; }
+    done < <(_tools)
+    [[ $bad -eq 0 ]] && _ok "Wszystkie pliki maja +x"
+}
+
+installed() {
+    local f name bad=0
+    while IFS= read -r f; do
+        name=$(basename "$f")
+        [[ -L "$BIN_DIR/$name" ]] || { _dim "nie zainstalowane: $name"; bad=1; }
+    done < <(_tools)
+    if [[ $bad -eq 0 ]]; then
+        _ok "Wszystkie narzedzia zlinkowane w $BIN_DIR"
+    else
+        echo "Uruchom: $FEZDIR/install.sh"
+    fi
+}
+
+status() {
+    printf "Katalog:    %s\n" "$FEZDIR"
+    printf "Narzedzia:  %s\n" "$(_tools | wc -l)"
+    command -v shellcheck &>/dev/null && echo "shellcheck: OK" || _dim "shellcheck: brak"
+}
+
+info() {
+    status; echo
+    echo "fezcheck lint        # bash -n + shellcheck na wszystkich fez*"
+    echo "fezcheck deps        # zewnetrzne zaleznosci wszystkich narzedzi"
+    echo "fezcheck perms       # czy wszystkie fez* maja +x"
+    echo "fezcheck installed   # czy wszystkie sa zlinkowane w ~/.local/bin"
+    echo "fezcheck -a          # wszystko naraz"
+    echo "fezcheck -c [flagi]  # -l -d -p -i"
+}
+
+all() { lint; echo; deps; echo; perms; echo; installed; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(lint deps perms installed status info)
+    local descs=(
+        "skladnia + shellcheck"
+        "zewnetrzne zaleznosci"
+        "uprawnienia +x"
+        "czy zlinkowane w ~/.local/bin"
+        "status"
+        "info + komendy"
+    )
+    _fzf_menu "fezcheck | $(_tools | wc -l) narzedzi" cmds descs
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -l|--lint)      lint ;;
+            -d|--deps)      deps ;;
+            -p|--perms)     perms ;;
+            -i|--installed) installed ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -l -d -p -i"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)      tui ;;
+    cli|-c)      cli "$@" ;;
+    all|-a)      all ;;
+    info|-i)     info ;;
+    lint)        lint ;;
+    deps)        deps ;;
+    perms)       perms ;;
+    installed)   installed ;;
+    status)      status ;;
+    *)           _do "$1" || echo "Uzycie: fezcheck [lint|deps|perms|installed|status|tui|cli|-a|-i]" ;;
+esac

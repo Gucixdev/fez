@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034  # cmds/descs czytane przez nameref w _fzf_menu (_fez.sh)
+# feztrace — strace/ltrace wrapper: podepnij sie pod proces albo odpal komende, filtruj po kategorii
+. "$(dirname "${BASH_SOURCE[0]}")/_fez.sh"
+
+_is_pid() { [[ "$1" =~ ^[0-9]+$ ]]; }
+
+_read_target() {
+    local -n _t="$1"; shift
+    if [[ $# -gt 0 ]]; then
+        _t=("$@"); return
+    fi
+    echo -n "PID lub komenda: "; read -r -a _t
+}
+
+_trace() {
+    local filter="$1"; shift
+    command -v strace &>/dev/null || { _err "Brakuje: strace  →  sudo pacman -S strace"; return 1; }
+    local target; _read_target target "$@"
+    [[ ${#target[@]} -eq 0 ]] && return 1
+    local args=(); [[ -n "$filter" ]] && args=(-e "trace=$filter")
+    if [[ ${#target[@]} -eq 1 ]] && _is_pid "${target[0]}"; then
+        sudo strace -f "${args[@]}" -p "${target[0]}"
+    else
+        strace -f "${args[@]}" "${target[@]}"
+    fi
+}
+
+full()    { _trace "" "$@"; }
+files()   { _trace file "$@"; }
+net()     { _trace network "$@"; }
+proc()    { _trace process "$@"; }
+signals() { _trace signal "$@"; }
+
+summary() {
+    command -v strace &>/dev/null || { _err "Brakuje: strace  →  sudo pacman -S strace"; return 1; }
+    local target; _read_target target "$@"
+    [[ ${#target[@]} -eq 0 ]] && return 1
+    if [[ ${#target[@]} -eq 1 ]] && _is_pid "${target[0]}"; then
+        sudo strace -c -f -p "${target[0]}"
+    else
+        strace -c -f "${target[@]}"
+    fi
+}
+
+calls() {
+    command -v ltrace &>/dev/null || { _err "Brakuje: ltrace  →  sudo pacman -S ltrace"; return 1; }
+    local target; _read_target target "$@"
+    [[ ${#target[@]} -eq 0 ]] && return 1
+    if [[ ${#target[@]} -eq 1 ]] && _is_pid "${target[0]}"; then
+        sudo ltrace -f -p "${target[0]}"
+    else
+        ltrace -f "${target[@]}"
+    fi
+}
+
+pick() {
+    command -v fzf &>/dev/null || { _err "Brakuje: fzf  →  sudo pacman -S fzf"; return 1; }
+    command -v strace &>/dev/null || { _err "Brakuje: strace  →  sudo pacman -S strace"; return 1; }
+    local line pid
+    line=$(ps -eo pid,comm,args --no-headers | sed 's/^ *//' | _fzf_pick "proces> ")
+    pid=$(awk '{print $1}' <<< "$line")
+    [[ -z "$pid" ]] && return 1
+    sudo strace -f -p "$pid"
+}
+
+status() {
+    command -v strace &>/dev/null && echo "strace: OK" || _err "strace: BRAK"
+    command -v ltrace &>/dev/null && echo "ltrace: OK" || _dim "ltrace: brak (calls niedostepne)"
+    command -v fzf    &>/dev/null && echo "fzf:    OK" || _dim "fzf:    brak (pick niedostepne)"
+}
+
+info() {
+    status; echo
+    echo "feztrace pick                  # fzf: wybierz proces i podepnij strace"
+    echo "feztrace full <pid|komenda>    # pelny strace -f"
+    echo "feztrace files <pid|komenda>   # tylko syscalle plikowe"
+    echo "feztrace net <pid|komenda>     # tylko syscalle sieciowe"
+    echo "feztrace proc <pid|komenda>    # tylko fork/exec/exit"
+    echo "feztrace signals <pid|komenda> # tylko sygnaly"
+    echo "feztrace summary <pid|komenda> # -c: czas/ilosc per syscall"
+    echo "feztrace calls <pid|komenda>   # ltrace: wywolania bibliotek"
+    echo "feztrace -c [flagi]            # -p -f -F -n -P -s -C  <pid|komenda>"
+}
+
+all() { pick; }
+
+_do() { declare -f "$1" &>/dev/null && eval "$1" || return 1; }
+
+tui() {
+    local cmds=(pick full files net proc signals summary calls status info)
+    local descs=(
+        "fzf: wybierz proces"
+        "pelny strace"
+        "tylko syscalle plikowe"
+        "tylko syscalle sieciowe"
+        "tylko fork/exec/exit"
+        "tylko sygnaly"
+        "podsumowanie czasu/ilosci"
+        "ltrace: wywolania bibliotek"
+        "status narzedzi"
+        "info + komendy"
+    )
+    _fzf_menu "feztrace" cmds descs
+}
+
+cli() {
+    shift
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            -p|--pick)    pick ;;
+            -f|--full)    shift; full "$@"; break ;;
+            -F|--files)   shift; files "$@"; break ;;
+            -n|--net)     shift; net "$@"; break ;;
+            -P|--proc)    shift; proc "$@"; break ;;
+            -s|--signals) shift; signals "$@"; break ;;
+            -S|--summary) shift; summary "$@"; break ;;
+            -C|--calls)   shift; calls "$@"; break ;;
+            *) echo "Nieznana flaga: $1"; echo "Flagi: -p -f -F -n -P -s -S -C  <pid|komenda>"; return 1 ;;
+        esac
+        shift
+    done
+}
+
+case "${1:-tui}" in
+    tui|-t)   tui ;;
+    cli|-c)   cli "$@" ;;
+    all|-a)   all ;;
+    info|-i)  info ;;
+    pick)     pick ;;
+    full)     shift; full "$@" ;;
+    files)    shift; files "$@" ;;
+    net)      shift; net "$@" ;;
+    proc)     shift; proc "$@" ;;
+    signals)  shift; signals "$@" ;;
+    summary)  shift; summary "$@" ;;
+    calls)    shift; calls "$@" ;;
+    status)   status ;;
+    "")       tui ;;
+    *)        full "$@" ;;
+esac
