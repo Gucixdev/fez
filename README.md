@@ -25,7 +25,6 @@ feztool -i       # print command reference
 | `fezbackup` | btrfs snapshot manager — create/keep/restore/export root or home snapshots |
 | `fezbt` | bluetooth — fzf device browser (pair/connect/disconnect/forget/rescan) |
 | `fezcleaner` | system cleanup — RAM, swap, logs, cache, pacman/AUR/podman/docker, coredumps, kernels, .pacnew |
-| `fezdeploy` | git push/tag/release (gh/glab/tea) + package publish (npm/cargo/PyPI/AUR) |
 | `fezgitflat` | GitHub repo → Flatpak — fzf search, then auto-detects project type (rust/cmake/make/python/go) to generate the build manifest |
 | `fezmain` | systemd service dashboard — vsv-style fzf TUI (start/stop/restart/logs) |
 | `fezmon` | resource monitor — CPU/RAM/GPU/disk/net/sockets, live view, fzf process picker (kill) |
@@ -33,8 +32,6 @@ feztool -i       # print command reference
 | `fezscenario` | record and replay keyboard/mouse/screen scenarios |
 | `fezsort` | organize files in a folder — by extension, date, size, or find/remove duplicates |
 | `feztoolbox` | `~/.toolbox` folder — drop in any script, `feztoolbox` gives an fzf picker to run it |
-| `feztest` | run tests for any project — auto-detects rust/go/node/python/bats/plain shell |
-| `feztrace` | strace/ltrace wrapper — attach or launch, filter by syscall category, fzf process picker |
 | `fezwifi` | wifi — fzf network browser (connect/disconnect/forget/rescan) |
 
 ## Install
